@@ -1,0 +1,97 @@
+site_name: Claude Code API Documentation
+site_description: Complete API documentation for Claude Code with agentic capabilities
+site_author: Anthropic
+repo_url: https://github.com/anthropics/claude-code-api
+repo_name: anthropics/claude-code-api
+
+theme:
+  name: material
+  favicon: data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y="75" font-size="75" fill="%23000">C</text></svg>
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.select
+    - navigation.tabs
+    - navigation.top
+    - navigation.footer
+    - toc.follow
+
+plugins:
+  - search
+
+markdown_extensions:
+  - pymdownx.highlight:
+      use_pygments: true
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - md_in_html
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Quick Start: quickstart.md
+
+  - API Reference:
+    - Completions: api-reference/completions.md
+    - Agentic Tasks: api-reference/agentic-tasks.md
+    - WebSocket Streaming: api-reference/websocket.md
+    - Authentication: api-reference/authentication.md
+
+  - Guides:
+    - Getting Started: guides/getting-started.md
+    - Agentic API: guides/agentic-api-guide.md
+    - Security Best Practices: guides/security-best-practices.md
+    - Permission Model: guides/permission-model.md
+    - Error Handling: guides/error-handling.md
+
+  - Examples:
+    - Code Analysis: examples/code-analysis.md
+    - Documentation Generation: examples/documentation-generation.md
+    - Test Generation: examples/test-generation.md
+    - Multi-Agent Workflows: examples/multi-agent-workflow.md
+
+  - Deployment:
+    - Docker Compose: deployment/docker-compose.md
+    - Production: deployment/production.md
+    - Monitoring: deployment/monitoring.md
+
+  - Client Libraries:
+    - Python: client-libraries/python.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/anthropics/claude-code-api
+    - icon: fontawesome/brands/twitter
+      link: https://twitter.com/anthropic
+  analytics:
+    provider: google
+    property: G-XXXXXXXXXX
+
+copyright: Copyright &copy; 2026 Anthropic
+
+extra_css:
+  - css/extra.css
+
+extra_javascript:
+  - js/extra.js
