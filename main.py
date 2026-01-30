@@ -13,12 +13,16 @@ from src.budget_manager import BudgetManager
 from src.auth import AuthManager, initialize_auth
 from src.api import router as api_router, initialize_services
 from src.websocket import initialize_websocket, websocket_endpoint
+from src.permission_manager import PermissionManager
+from src.audit_logger import AuditLogger
 
 
 # Global service instances
 worker_pool = None
 budget_manager = None
 auth_manager = None
+permission_manager = None
+audit_logger = None
 
 
 @asynccontextmanager
@@ -27,7 +31,7 @@ async def lifespan(app: FastAPI):
     Application lifespan manager.
     Initializes and cleans up worker pool, budget manager, and auth manager.
     """
-    global worker_pool, budget_manager, auth_manager
+    global worker_pool, budget_manager, auth_manager, permission_manager, audit_logger
 
     # Startup: Initialize services
     worker_pool = WorkerPool(max_workers=5)
@@ -37,12 +41,16 @@ async def lifespan(app: FastAPI):
 
     auth_manager = AuthManager(db_path="data/auth.db")
 
+    permission_manager = PermissionManager(db_path="data/budgets.db")
+
+    audit_logger = AuditLogger(db_path="data/budgets.db")
+
     # Initialize API services
     initialize_services(worker_pool, budget_manager)
     initialize_auth(auth_manager)
 
     # Initialize WebSocket service
-    initialize_websocket(worker_pool, budget_manager)
+    initialize_websocket(worker_pool, budget_manager, permission_manager, audit_logger)
 
     print("✓ Worker pool started (max_workers=5)")
     print("✓ Budget manager initialized")
