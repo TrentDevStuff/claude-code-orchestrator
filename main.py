@@ -131,4 +131,6 @@ async def stream(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    import os
+    port = int(os.getenv("PORT", 8006))  # Use registered port 8006
+    uvicorn.run(app, host="0.0.0.0", port=port)

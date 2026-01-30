@@ -1,0 +1,41 @@
+---
+project_id: claude-code-api-service
+project_name: Claude Code API Service
+created: '2026-01-30T14:00:00Z'
+visibility: personal
+machines:
+  - all
+
+metadata:
+  description: Production-ready REST + WebSocket API service wrapping Claude Code CLI
+  tags:
+    - personal
+    - ai
+    - api
+    - claude-code
+    - fastapi
+    - llm
+    - service
+  github: https://github.com/TrentDevStuff/claude-code-orchestrator
+
+orchestration:
+  project_file: /Users/trent/.claude/orchestration/projects/claude-code-api-service/PROJECT.md
+  goals: []
+
+ports:
+  main_service: 8006
+  protocol: HTTP + WebSocket
+  dependencies:
+    - redis:6379
+
+notes: |
+  Service enables rapid prototyping by providing local API access to Claude Code's
+  1M context Sonnet model without additional API costs beyond Claude Code Max subscription.
+
+  Key Features:
+  - REST + WebSocket endpoints
+  - Intelligent model routing (Haiku/Sonnet/Opus)
+  - Token tracking and budget management
+  - Parallel execution worker pool
+  - Python client library
+  - Cost optimization
