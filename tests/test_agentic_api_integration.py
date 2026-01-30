@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
 
 from main import app
-from src.agentic_executor import AgenticTaskRequest, AgenticTaskResponse, ExecutionLogEntry, Artifact, UsageStats
+from src.agentic_executor import AgenticTaskRequest, AgenticTaskResponse, ExecutionLogEntry, Artifact
 
 
 @pytest.fixture
@@ -28,23 +28,25 @@ def mock_executor():
     with patch("src.api.AgenticExecutor") as mock:
         executor = Mock()
         executor.execute_task = AsyncMock(return_value=AgenticTaskResponse(
+            task_id="test-task-123",
             status="completed",
             result={"summary": "Test task completed successfully"},
             execution_log=[
                 ExecutionLogEntry(
+                    step=1,
                     timestamp="2026-01-30T20:00:00Z",
                     action="tool_call",
                     details={"tool": "Read", "file": "test.py"}
                 )
             ],
             artifacts=[],
-            usage=UsageStats(
-                model="sonnet",
-                input_tokens=100,
-                output_tokens=50,
-                total_tokens=150,
-                cost=0.00045
-            )
+            usage={
+                "model_used": "sonnet",
+                "input_tokens": 100,
+                "output_tokens": 50,
+                "total_tokens": 150,
+                "total_cost": 0.00045
+            }
         ))
         mock.return_value = executor
         yield executor
