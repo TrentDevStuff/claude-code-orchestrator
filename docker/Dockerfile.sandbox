@@ -1,0 +1,19 @@
+# Secure Claude Code Sandbox Container
+# For isolated agentic task execution with strict security controls
+
+FROM python:3.11-slim
+
+# Install Claude CLI
+RUN pip install --no-cache-dir claude-cli
+
+# Create unprivileged user for sandbox execution
+RUN useradd -m -u 1000 -s /bin/bash claude
+
+# Set working directory
+WORKDIR /workspace
+
+# Switch to unprivileged user
+USER claude
+
+# Default entrypoint for Claude CLI
+ENTRYPOINT ["claude", "-p"]
