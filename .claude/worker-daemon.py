@@ -232,7 +232,9 @@ class WorkerDaemon:
         if IS_WINDOWS:
             # PowerShell script — read file into variable, pass as argument
             pid_file_abs = pid_file.absolute()
+            project_dir_abs = self.project_dir.absolute()
             script_content = (
+                f"Set-Location '{project_dir_abs}'\n"  # FIX: Set working directory
                 f"$PID | Out-File -FilePath '{pid_file_abs}' -NoNewline\n"
                 f"Write-Host ''\n"
                 f"Write-Host '=== {tab_title} ===' -ForegroundColor Cyan\n"
@@ -254,8 +256,10 @@ class WorkerDaemon:
         else:
             # Bash script — read file into variable, pass as quoted argument
             pid_file_abs = pid_file.absolute()
+            project_dir_abs = self.project_dir.absolute()
             script_content = (
                 f"#!/bin/bash\n"
+                f"cd '{project_dir_abs}'\n"  # FIX: Set working directory
                 f"echo $$ > {pid_file_abs}\n"
                 f"echo ''\n"
                 f"echo '=== {tab_title} ==='\n"
