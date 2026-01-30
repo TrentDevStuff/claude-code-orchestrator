@@ -8,7 +8,7 @@ Provides endpoints for:
 - Model routing recommendations
 """
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import asyncio
@@ -17,6 +17,7 @@ from datetime import datetime
 from src.worker_pool import WorkerPool, TaskStatus
 from src.model_router import auto_select_model
 from src.budget_manager import BudgetManager
+from src.auth import verify_api_key
 
 
 # ============================================================================
@@ -33,7 +34,6 @@ class ChatCompletionRequest(BaseModel):
     """Request model for chat completions."""
     messages: List[Message] = Field(..., description="Conversation messages")
     model: Optional[str] = Field(None, description="Model to use (haiku, sonnet, opus). If not provided, auto-selected.")
-    project_id: str = Field("default", description="Project ID for budget tracking")
     timeout: float = Field(30.0, description="Request timeout in seconds", ge=1.0, le=300.0)
     max_tokens: Optional[int] = Field(None, description="Estimated context size for auto-routing")
 
@@ -65,7 +65,6 @@ class BatchRequest(BaseModel):
     """Request model for batch processing."""
     prompts: List[BatchPrompt] = Field(..., description="List of prompts to process")
     model: Optional[str] = Field(None, description="Model to use for all prompts")
-    project_id: str = Field("default", description="Project ID for budget tracking")
     timeout: float = Field(30.0, description="Per-prompt timeout in seconds", ge=1.0, le=300.0)
 
 
@@ -94,7 +93,6 @@ class RouteRequest(BaseModel):
     """Request model for model routing recommendation."""
     prompt: str = Field(..., description="Task description/prompt")
     context_size: int = Field(0, description="Estimated context size in tokens", ge=0)
-    project_id: str = Field("default", description="Project ID for budget checking")
 
 
 class RouteResponse(BaseModel):
@@ -144,10 +142,14 @@ def initialize_services(pool: WorkerPool, budget: BudgetManager):
 # ============================================================================
 
 @router.post("/chat/completions", response_model=ChatCompletionResponse)
-async def chat_completion(request: ChatCompletionRequest) -> ChatCompletionResponse:
+async def chat_completion(
+    request: ChatCompletionRequest,
+    project_id: str = Depends(verify_api_key)
+) -> ChatCompletionResponse:
     """
     Generate a chat completion using Claude CLI.
 
+    - Requires valid API key via Bearer token
     - Uses WorkerPool for process management
     - Auto-selects model if not specified
     - Tracks usage in BudgetManager
@@ -162,7 +164,7 @@ async def chat_completion(request: ChatCompletionRequest) -> ChatCompletionRespo
     # Auto-select model if not provided
     if request.model is None:
         # Get budget remaining
-        usage_stats = await budget_manager.get_usage(request.project_id, period="month")
+        usage_stats = await budget_manager.get_usage(project_id, period="month")
         budget_remaining = usage_stats.get("remaining") or float('inf')
 
         context_size = request.max_tokens or len(prompt.split())
@@ -170,19 +172,19 @@ async def chat_completion(request: ChatCompletionRequest) -> ChatCompletionRespo
 
     # Check budget before proceeding
     estimated_tokens = len(prompt.split()) * 2  # Rough estimate
-    budget_ok = await budget_manager.check_budget(request.project_id, estimated_tokens)
+    budget_ok = await budget_manager.check_budget(project_id, estimated_tokens)
 
     if not budget_ok:
         raise HTTPException(
             status_code=429,
-            detail=f"Budget exceeded for project {request.project_id}"
+            detail=f"Budget exceeded for project {project_id}"
         )
 
     # Submit task to worker pool
     task_id = worker_pool.submit(
         prompt=prompt,
         model=request.model,
-        project_id=request.project_id,
+        project_id=project_id,
         timeout=request.timeout
     )
 
@@ -204,7 +206,7 @@ async def chat_completion(request: ChatCompletionRequest) -> ChatCompletionRespo
 
     # Track usage
     await budget_manager.track_usage(
-        project_id=request.project_id,
+        project_id=project_id,
         model=request.model,
         tokens=result.usage["total_tokens"],
         cost=result.cost
@@ -216,15 +218,19 @@ async def chat_completion(request: ChatCompletionRequest) -> ChatCompletionRespo
         content=result.completion,
         usage=Usage(**result.usage),
         cost=result.cost,
-        project_id=request.project_id
+        project_id=project_id
     )
 
 
 @router.post("/batch", response_model=BatchResponse)
-async def batch_processing(request: BatchRequest) -> BatchResponse:
+async def batch_processing(
+    request: BatchRequest,
+    project_id: str = Depends(verify_api_key)
+) -> BatchResponse:
     """
     Process multiple prompts in parallel using the worker pool.
 
+    - Requires valid API key via Bearer token
     - Submits all prompts concurrently
     - Waits for all to complete
     - Returns aggregate statistics
@@ -236,7 +242,7 @@ async def batch_processing(request: BatchRequest) -> BatchResponse:
     model = request.model
     if model is None:
         # Use first prompt for model selection
-        usage_stats = await budget_manager.get_usage(request.project_id, period="month")
+        usage_stats = await budget_manager.get_usage(project_id, period="month")
         budget_remaining = usage_stats.get("remaining") or float('inf')
 
         first_prompt = request.prompts[0].prompt
@@ -249,7 +255,7 @@ async def batch_processing(request: BatchRequest) -> BatchResponse:
         task_id = worker_pool.submit(
             prompt=batch_item.prompt,
             model=model,
-            project_id=request.project_id,
+            project_id=project_id,
             timeout=request.timeout
         )
         task_ids.append((task_id, batch_item))
@@ -277,7 +283,7 @@ async def batch_processing(request: BatchRequest) -> BatchResponse:
 
             # Track usage
             await budget_manager.track_usage(
-                project_id=request.project_id,
+                project_id=project_id,
                 model=model,
                 tokens=result.usage["total_tokens"],
                 cost=result.cost
@@ -312,7 +318,7 @@ async def batch_processing(request: BatchRequest) -> BatchResponse:
 
 @router.get("/usage", response_model=UsageResponse)
 async def get_usage(
-    project_id: str = Query("default", description="Project ID"),
+    project_id: str = Depends(verify_api_key),
     period: str = Query("month", description="Time period: month, week, or day")
 ) -> UsageResponse:
     """
@@ -350,11 +356,15 @@ async def get_usage(
 
 
 @router.post("/route", response_model=RouteResponse)
-async def route_recommendation(request: RouteRequest) -> RouteResponse:
+async def route_recommendation(
+    request: RouteRequest,
+    project_id: str = Depends(verify_api_key)
+) -> RouteResponse:
     """
     Get model routing recommendation for a prompt.
 
-    Tests the model routing logic and returns:
+    - Requires valid API key via Bearer token
+    - Tests the model routing logic and returns:
     - Recommended model
     - Reasoning for the selection
     - Current budget status
@@ -363,7 +373,7 @@ async def route_recommendation(request: RouteRequest) -> RouteResponse:
         raise HTTPException(status_code=500, detail="Budget manager not initialized")
 
     # Get budget status
-    usage_stats = await budget_manager.get_usage(request.project_id, period="month")
+    usage_stats = await budget_manager.get_usage(project_id, period="month")
     budget_remaining = usage_stats.get("remaining") or float('inf')
 
     # Get recommendation

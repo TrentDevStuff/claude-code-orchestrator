@@ -2,7 +2,7 @@
 Claude Code API Service
 A flexible, reusable API service that wraps Claude Code CLI for rapid prototyping.
 """
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from contextlib import asynccontextmanager
@@ -10,21 +10,24 @@ import uvicorn
 
 from src.worker_pool import WorkerPool
 from src.budget_manager import BudgetManager
+from src.auth import AuthManager, initialize_auth
 from src.api import router as api_router, initialize_services
+from src.websocket import initialize_websocket, websocket_endpoint
 
 
 # Global service instances
 worker_pool = None
 budget_manager = None
+auth_manager = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
     Application lifespan manager.
-    Initializes and cleans up worker pool and budget manager.
+    Initializes and cleans up worker pool, budget manager, and auth manager.
     """
-    global worker_pool, budget_manager
+    global worker_pool, budget_manager, auth_manager
 
     # Startup: Initialize services
     worker_pool = WorkerPool(max_workers=5)
@@ -32,12 +35,20 @@ async def lifespan(app: FastAPI):
 
     budget_manager = BudgetManager(db_path="data/budgets.db")
 
+    auth_manager = AuthManager(db_path="data/auth.db")
+
     # Initialize API services
     initialize_services(worker_pool, budget_manager)
+    initialize_auth(auth_manager)
+
+    # Initialize WebSocket service
+    initialize_websocket(worker_pool, budget_manager)
 
     print("✓ Worker pool started (max_workers=5)")
     print("✓ Budget manager initialized")
+    print("✓ Auth manager initialized")
     print("✓ API services ready")
+    print("✓ WebSocket streaming ready")
 
     yield
 
@@ -82,7 +93,8 @@ def health():
         "version": "0.1.0",
         "services": {
             "worker_pool": "running" if worker_pool and worker_pool.running else "stopped",
-            "budget_manager": "initialized" if budget_manager else "not initialized"
+            "budget_manager": "initialized" if budget_manager else "not initialized",
+            "auth_manager": "initialized" if auth_manager else "not initialized"
         }
     }
 
@@ -99,9 +111,23 @@ def root():
             "chat": "/v1/chat/completions",
             "batch": "/v1/batch",
             "usage": "/v1/usage",
-            "route": "/v1/route"
+            "route": "/v1/route",
+            "stream": "ws://localhost:8080/v1/stream"
         }
     }
+
+
+@app.websocket("/v1/stream")
+async def stream(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time streaming chat.
+
+    Protocol:
+    - Client sends: {"type": "chat", "model": "haiku", "messages": [...]}
+    - Server streams: {"type": "token", "content": "..."}
+    - Server finishes: {"type": "done", "usage": {...}, "cost": 0.001}
+    """
+    await websocket_endpoint(websocket)
 
 
 if __name__ == "__main__":
