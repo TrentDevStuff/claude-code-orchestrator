@@ -2,6 +2,7 @@
 Agentic Task Executor for Claude Code API.
 
 Enables full Claude Code capabilities: tools, agents, skills, multi-turn reasoning.
+Includes comprehensive audit logging integration.
 """
 
 import asyncio
@@ -18,6 +19,7 @@ from pydantic import BaseModel, Field
 from .worker_pool import WorkerPool, TaskResult
 from .budget_manager import BudgetManager
 from .model_router import auto_select_model
+from .audit_logger import AuditLogger
 
 
 # Pydantic Models
@@ -33,6 +35,7 @@ class AgenticTaskRequest(BaseModel):
     max_cost: float = Field(default=1.00, description="Maximum cost in USD")
     model: Optional[str] = Field(default=None, description="Model to use (haiku/sonnet/opus), auto-selected if None")
     project_id: str = Field(default="default", description="Project ID for budget tracking")
+    api_key: str = Field(..., description="API key for audit logging")
 
 
 class ExecutionLogEntry(BaseModel):
@@ -74,18 +77,26 @@ class AgenticExecutor:
     - Timeout enforcement
     - Cost limit enforcement
     - Budget integration
+    - Comprehensive audit logging
     """
 
-    def __init__(self, worker_pool: Optional[WorkerPool] = None, budget_manager: Optional[BudgetManager] = None):
+    def __init__(
+        self,
+        worker_pool: Optional[WorkerPool] = None,
+        budget_manager: Optional[BudgetManager] = None,
+        audit_logger: Optional[AuditLogger] = None
+    ):
         """
         Initialize AgenticExecutor.
 
         Args:
             worker_pool: WorkerPool instance (creates new if None)
             budget_manager: BudgetManager instance (creates new if None)
+            audit_logger: AuditLogger instance for comprehensive event logging (creates new if None)
         """
         self.worker_pool = worker_pool or WorkerPool(max_workers=5)
         self.budget_manager = budget_manager or BudgetManager()
+        self.audit_logger = audit_logger or AuditLogger()
 
     async def execute_task(self, request: AgenticTaskRequest) -> AgenticTaskResponse:
         """
@@ -106,37 +117,56 @@ class AgenticExecutor:
         task_id = str(uuid.uuid4())
         start_time = time.time()
 
-        # Step 1: Validate request
-        self._validate_request(request)
-
-        # Step 2: Select model if not specified
-        model = request.model or self._auto_select_model(request)
-
-        # Step 3: Estimate tokens and check budget
-        estimated_tokens = self._estimate_tokens(request, model)
-        has_budget = await self.budget_manager.check_budget(
-            project_id=request.project_id,
-            estimated_tokens=estimated_tokens
+        # Log task start
+        await self.audit_logger.log_tool_call(
+            task_id,
+            request.api_key,
+            "task_start",
+            {
+                "description": request.description[:100],
+                "allow_tools": request.allow_tools,
+                "allow_agents": request.allow_agents,
+                "allow_skills": request.allow_skills
+            }
         )
 
-        if not has_budget:
-            return AgenticTaskResponse(
-                task_id=task_id,
-                status="failed",
-                result={"error": "Insufficient budget"},
-                execution_log=[],
-                artifacts=[],
-                usage={"estimated_tokens": estimated_tokens}
+        try:
+            # Step 1: Validate request
+            self._validate_request(request)
+
+            # Step 2: Select model if not specified
+            model = request.model or self._auto_select_model(request)
+
+            # Step 3: Estimate tokens and check budget
+            estimated_tokens = self._estimate_tokens(request, model)
+            has_budget = await self.budget_manager.check_budget(
+                project_id=request.project_id,
+                estimated_tokens=estimated_tokens
             )
 
-        # Step 4: Build agentic prompt with configuration
-        agentic_prompt = self._build_agentic_prompt(request)
+            if not has_budget:
+                await self.audit_logger.log_security_event(
+                    task_id,
+                    request.api_key,
+                    "budget_exceeded",
+                    {"estimated_tokens": estimated_tokens}
+                )
+                return AgenticTaskResponse(
+                    task_id=task_id,
+                    status="failed",
+                    result={"error": "Insufficient budget"},
+                    execution_log=[],
+                    artifacts=[],
+                    usage={"estimated_tokens": estimated_tokens}
+                )
 
-        # Step 5: Create workspace for artifacts
-        workspace_dir = self._create_workspace(task_id)
+            # Step 4: Build agentic prompt with configuration
+            agentic_prompt = self._build_agentic_prompt(request)
 
-        # Step 6: Submit to worker pool
-        try:
+            # Step 5: Create workspace for artifacts
+            workspace_dir = self._create_workspace(task_id)
+
+            # Step 6: Submit to worker pool
             worker_task_id = self.worker_pool.submit(
                 prompt=agentic_prompt,
                 model=model,
@@ -151,6 +181,12 @@ class AgenticExecutor:
             )
 
         except TimeoutError:
+            await self.audit_logger.log_security_event(
+                task_id,
+                request.api_key,
+                "timeout",
+                {"timeout_seconds": request.timeout}
+            )
             return AgenticTaskResponse(
                 task_id=task_id,
                 status="timeout",
@@ -161,6 +197,12 @@ class AgenticExecutor:
             )
 
         except Exception as e:
+            await self.audit_logger.log_security_event(
+                task_id,
+                request.api_key,
+                "execution_error",
+                {"error": str(e)}
+            )
             return AgenticTaskResponse(
                 task_id=task_id,
                 status="failed",
@@ -177,6 +219,12 @@ class AgenticExecutor:
 
         # Check cost limit
         if actual_cost > request.max_cost:
+            await self.audit_logger.log_security_event(
+                task_id,
+                request.api_key,
+                "cost_exceeded",
+                {"actual_cost": actual_cost, "max_cost": request.max_cost}
+            )
             return AgenticTaskResponse(
                 task_id=task_id,
                 status="cost_exceeded",
@@ -201,6 +249,19 @@ class AgenticExecutor:
             input_tokens=input_tokens,
             output_tokens=output_tokens,
             cost=actual_cost
+        )
+
+        # Log successful completion
+        await self.audit_logger.log_tool_call(
+            task_id,
+            request.api_key,
+            "task_completed",
+            {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "cost": actual_cost,
+                "model": model
+            }
         )
 
         # Step 10: Parse execution log from output
