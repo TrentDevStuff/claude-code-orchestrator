@@ -20,6 +20,9 @@ import uuid
 
 from src.worker_pool import WorkerPool
 from src.budget_manager import BudgetManager
+from src.permission_manager import PermissionManager
+from src.audit_logger import AuditLogger
+from src.agentic_executor import AgenticExecutor, AgenticTaskRequest
 
 
 class WebSocketStreamer:
@@ -40,16 +43,26 @@ class WebSocketStreamer:
         "opus": {"input": 15.00, "output": 75.00},
     }
 
-    def __init__(self, worker_pool: WorkerPool, budget_manager: BudgetManager):
+    def __init__(
+        self,
+        worker_pool: WorkerPool,
+        budget_manager: BudgetManager,
+        permission_manager: Optional[PermissionManager] = None,
+        audit_logger: Optional[AuditLogger] = None
+    ):
         """
         Initialize WebSocket streamer.
 
         Args:
             worker_pool: WorkerPool instance for process management
             budget_manager: BudgetManager instance for budget tracking
+            permission_manager: PermissionManager instance for permission validation
+            audit_logger: AuditLogger instance for audit logging
         """
         self.worker_pool = worker_pool
         self.budget_manager = budget_manager
+        self.permission_manager = permission_manager or PermissionManager()
+        self.audit_logger = audit_logger or AuditLogger()
         self.active_connections: Dict[str, WebSocket] = {}
 
     async def handle_connection(self, websocket: WebSocket):
@@ -80,6 +93,8 @@ class WebSocketStreamer:
                 # Handle different message types
                 if message.get("type") == "chat":
                     await self._handle_chat(websocket, message)
+                elif message.get("type") == "agentic_task":
+                    await self._handle_agentic_task(websocket, message)
                 else:
                     await websocket.send_json({
                         "type": "error",
@@ -153,6 +168,151 @@ class WebSocketStreamer:
                 "type": "error",
                 "error": f"Streaming error: {str(e)}"
             })
+
+    async def _handle_agentic_task(self, websocket: WebSocket, message: Dict[str, Any]):
+        """
+        Handle an agentic task with real-time streaming.
+
+        Message format:
+        {
+            "type": "agentic_task",
+            "api_key": "sk-proj-...",
+            "description": "Task description",
+            "allow_tools": ["Read", "Grep"],
+            "allow_agents": ["agent-name"],
+            "allow_skills": ["skill-name"],
+            "timeout": 300,
+            "max_cost": 1.0
+        }
+
+        Stream events:
+        - {"type": "thinking", "content": "..."}
+        - {"type": "result", "summary": "...", "artifacts": [...]}
+        - {"type": "error", "error": "..."}
+        """
+        # Extract parameters
+        api_key = message.get("api_key")
+        description = message.get("description")
+        allow_tools = message.get("allow_tools", [])
+        allow_agents = message.get("allow_agents", [])
+        allow_skills = message.get("allow_skills", [])
+        timeout = message.get("timeout", 300)
+        max_cost = message.get("max_cost", 1.0)
+
+        # Validate API key
+        if not api_key:
+            await websocket.send_json({
+                "type": "error",
+                "error": "api_key required for agentic tasks"
+            })
+            return
+
+        # Validate permissions
+        validation = await self.permission_manager.validate_task_request(
+            api_key=api_key,
+            requested_tools=allow_tools,
+            requested_agents=allow_agents,
+            requested_skills=allow_skills,
+            timeout=timeout,
+            max_cost=max_cost
+        )
+
+        if not validation.allowed:
+            await websocket.send_json({
+                "type": "error",
+                "error": f"Permission denied: {validation.reason}"
+            })
+            await self.audit_logger.log_security_event(
+                task_id="websocket_denied",
+                api_key=api_key,
+                event="permission_denied",
+                details={"reason": validation.reason}
+            )
+            return
+
+        # Create executor
+        executor = AgenticExecutor(
+            worker_pool=self.worker_pool,
+            budget_manager=self.budget_manager,
+            audit_logger=self.audit_logger
+        )
+
+        # Build request
+        request = AgenticTaskRequest(
+            description=description,
+            allow_tools=allow_tools,
+            allow_agents=allow_agents,
+            allow_skills=allow_skills,
+            timeout=timeout,
+            max_cost=max_cost
+        )
+
+        # Log task start
+        task_id = str(uuid.uuid4())
+        await self.audit_logger.log_tool_call(
+            task_id=task_id,
+            api_key=api_key,
+            tool="websocket_agentic_task",
+            args={"description": description}
+        )
+
+        try:
+            # Stream execution events
+            await self._stream_agentic_execution(websocket, executor, request, task_id, api_key)
+        except Exception as e:
+            await websocket.send_json({
+                "type": "error",
+                "error": f"Task execution error: {str(e)}"
+            })
+            await self.audit_logger.log_security_event(
+                task_id=task_id,
+                api_key=api_key,
+                event="task_error",
+                details={"error": str(e)}
+            )
+
+    async def _stream_agentic_execution(
+        self,
+        websocket: WebSocket,
+        executor: AgenticExecutor,
+        request: AgenticTaskRequest,
+        task_id: str,
+        api_key: str
+    ):
+        """
+        Stream agentic task execution events in real-time.
+
+        This is a simplified implementation that executes the task
+        and returns the result. Real-time streaming of individual
+        tool calls would require modifications to AgenticExecutor
+        to support async streaming.
+        """
+        # Send start event
+        await websocket.send_json({
+            "type": "thinking",
+            "content": "Starting task execution..."
+        })
+
+        # Execute task (currently blocking - would need async streaming in executor)
+        response = await executor.execute_task(request)
+
+        # Send result
+        await websocket.send_json({
+            "type": "result",
+            "status": response.status,
+            "result": response.result,
+            "execution_log": [entry.dict() for entry in response.execution_log],
+            "artifacts": [artifact.dict() for artifact in response.artifacts],
+            "usage": response.usage.dict() if response.usage else None
+        })
+
+        # Log completion
+        await self.audit_logger.log_tool_call(
+            task_id=task_id,
+            api_key=api_key,
+            tool="websocket_agentic_task_complete",
+            args={"status": response.status}
+        )
 
     async def _stream_response(
         self,
@@ -321,16 +481,28 @@ class WebSocketStreamer:
 _streamer: Optional[WebSocketStreamer] = None
 
 
-def initialize_websocket(worker_pool: WorkerPool, budget_manager: BudgetManager):
+def initialize_websocket(
+    worker_pool: WorkerPool,
+    budget_manager: BudgetManager,
+    permission_manager: Optional[PermissionManager] = None,
+    audit_logger: Optional[AuditLogger] = None
+):
     """
     Initialize the WebSocket streamer.
 
     Args:
         worker_pool: WorkerPool instance
         budget_manager: BudgetManager instance
+        permission_manager: PermissionManager instance for permission validation
+        audit_logger: AuditLogger instance for audit logging
     """
     global _streamer
-    _streamer = WebSocketStreamer(worker_pool, budget_manager)
+    _streamer = WebSocketStreamer(
+        worker_pool,
+        budget_manager,
+        permission_manager,
+        audit_logger
+    )
 
 
 async def websocket_endpoint(websocket: WebSocket):
@@ -339,7 +511,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     Protocol:
 
-    Client → Server:
+    Client → Server (chat):
     {
         "type": "chat",
         "model": "haiku",
@@ -347,10 +519,26 @@ async def websocket_endpoint(websocket: WebSocket):
         "project_id": "default"
     }
 
-    Server → Client (streaming):
+    Client → Server (agentic task):
+    {
+        "type": "agentic_task",
+        "api_key": "sk-proj-...",
+        "description": "Analyze code for issues",
+        "allow_tools": ["Read", "Grep"],
+        "allow_agents": ["security-auditor"],
+        "allow_skills": ["skill-name"],
+        "timeout": 300,
+        "max_cost": 1.0
+    }
+
+    Server → Client (chat streaming):
     {"type": "token", "content": "Hello"}
     {"type": "token", "content": " world"}
     {"type": "done", "usage": {...}, "cost": 0.0001, "model": "haiku"}
+
+    Server → Client (agentic streaming):
+    {"type": "thinking", "content": "Starting task..."}
+    {"type": "result", "status": "completed", "result": {...}, "execution_log": [...]}
 
     Server → Client (error):
     {"type": "error", "error": "Error message"}
