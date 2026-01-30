@@ -18,6 +18,8 @@ from src.worker_pool import WorkerPool, TaskStatus
 from src.model_router import auto_select_model
 from src.budget_manager import BudgetManager
 from src.auth import verify_api_key
+from src.permission_manager import PermissionManager
+from src.agentic_executor import AgenticExecutor, AgenticTaskRequest, AgenticTaskResponse
 
 
 # ============================================================================
@@ -608,3 +610,63 @@ async def get_provider_models(provider: str):
         }
     else:
         raise HTTPException(404, f"Provider {provider} not supported. Only 'anthropic' and 'claudecode' available.")
+
+
+# ============================================================================
+# Agentic Task Execution
+# ============================================================================
+
+@router.post("/task", response_model=AgenticTaskResponse)
+async def execute_agentic_task(
+    request: AgenticTaskRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    Execute an agentic task with permission validation.
+
+    This endpoint validates the API key's permissions before executing the task:
+    - Validates tool/agent/skill access
+    - Enforces resource limits (timeout, cost)
+    - Checks against permission profile
+
+    Args:
+        request: AgenticTaskRequest with task details
+        api_key: Validated API key from auth middleware
+
+    Returns:
+        AgenticTaskResponse with execution results
+
+    Raises:
+        HTTPException 403: Permission denied
+        HTTPException 500: Execution error
+    """
+    # Validate permissions BEFORE creating sandbox
+    permission_manager = PermissionManager()
+    validation = permission_manager.validate_task_request(
+        api_key=api_key,
+        requested_tools=request.allow_tools,
+        requested_agents=request.allow_agents,
+        requested_skills=request.allow_skills,
+        timeout=request.timeout,
+        max_cost=request.max_cost
+    )
+
+    if not validation.allowed:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission denied: {validation.reason}"
+        )
+
+    # Execute task with AgenticExecutor
+    try:
+        executor = AgenticExecutor(
+            worker_pool=worker_pool,
+            budget_manager=budget_manager
+        )
+        response = await executor.execute_task(request)
+        return response
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Task execution failed: {str(e)}"
+        )
