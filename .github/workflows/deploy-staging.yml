@@ -1,0 +1,75 @@
+name: Deploy to Staging
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:  # Allow manual triggers
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to Staging Server
+    runs-on: ubuntu-latest
+    environment:
+      name: staging
+      url: https://staging-api.example.com
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.0
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          script: |
+            # Navigate to project directory
+            cd /opt/claude-code-api-service
+
+            # Pull latest changes
+            git fetch origin
+            git checkout develop
+            git pull origin develop
+
+            # Pull latest Docker image
+            docker compose pull
+
+            # Restart services with zero downtime
+            docker compose up -d --no-deps
+
+            # Wait for health check
+            sleep 5
+
+            # Verify deployment
+            curl -f http://localhost:8006/health || exit 1
+
+            echo "Staging deployment successful!"
+
+      - name: Run smoke tests
+        run: |
+          # Wait for service to be fully ready
+          sleep 10
+
+          # Test health endpoint
+          curl -f http://${{ secrets.STAGING_HOST }}:8006/health
+
+          # Test simple completion
+          curl -f -X POST http://${{ secrets.STAGING_HOST }}:8006/v1/chat/completions \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.STAGING_API_KEY }}" \
+            -d '{"model": "haiku", "messages": [{"role": "user", "content": "test"}]}'
+        continue-on-error: true
+
+      - name: Notify deployment status
+        if: always()
+        run: |
+          if [ ${{ job.status }} == 'success' ]; then
+            echo "✅ Staging deployment successful"
+          else
+            echo "❌ Staging deployment failed"
+          fi
