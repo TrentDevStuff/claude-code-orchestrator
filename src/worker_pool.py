@@ -10,6 +10,7 @@ Manages a pool of Claude CLI subprocess workers with:
 """
 
 import json
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -271,13 +272,14 @@ class WorkerPool:
             # Write prompt to file
             prompt_file.write_text(task.prompt)
 
-            # Build command
-            cmd = [
-                "claude",
-                "-p", f"$(cat {prompt_file})",
-                "--model", task.model,
-                "--output-format", "json"
-            ]
+            # Build command - use shell string for proper prompt handling
+            # This matches the orchestrator's daemon pattern
+            claude_path = shutil.which("claude") or "claude"
+            cmd = (
+                f'{claude_path} -p "$(cat {prompt_file})" '
+                f'--model {task.model} '
+                f'--output-format json'
+            )
 
             # Start process
             try:
@@ -285,8 +287,9 @@ class WorkerPool:
                     cmd,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    shell=True,  # Need shell for $(cat ...) substitution
-                    text=True
+                    shell=True,
+                    text=True,
+                    executable='/bin/bash'  # Use bash for $(cat ...) substitution
                 )
                 task.status = TaskStatus.RUNNING
                 task.start_time = time.time()
@@ -369,7 +372,7 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id,
                     status=TaskStatus.COMPLETED,
-                    completion=output.get("content", [{}])[0].get("text", ""),
+                    completion=output.get("result", ""),  # Fixed: Claude CLI returns "result" not "content"
                     usage={
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
