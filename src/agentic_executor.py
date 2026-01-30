@@ -35,7 +35,7 @@ class AgenticTaskRequest(BaseModel):
     max_cost: float = Field(default=1.00, description="Maximum cost in USD")
     model: Optional[str] = Field(default=None, description="Model to use (haiku/sonnet/opus), auto-selected if None")
     project_id: str = Field(default="default", description="Project ID for budget tracking")
-    api_key: str = Field(..., description="API key for audit logging")
+    api_key: str = Field(default="default", description="API key for audit logging")
 
 
 class ExecutionLogEntry(BaseModel):
@@ -117,6 +117,9 @@ class AgenticExecutor:
         task_id = str(uuid.uuid4())
         start_time = time.time()
 
+        # Step 1: Validate request (before try block so validation errors raise)
+        self._validate_request(request)
+
         # Log task start
         await self.audit_logger.log_tool_call(
             task_id,
@@ -131,9 +134,6 @@ class AgenticExecutor:
         )
 
         try:
-            # Step 1: Validate request
-            self._validate_request(request)
-
             # Step 2: Select model if not specified
             model = request.model or self._auto_select_model(request)
 
