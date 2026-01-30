@@ -1,0 +1,8 @@
+{
+  "provider": "anthropic",
+  "model_name": "claude-3-haiku",
+  "system_message": "You are a helpful assistant",
+  "user_message": "Say SUCCESS in one word",
+  "max_tokens": 50,
+  "project_id": "test"
+}

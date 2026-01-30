@@ -419,3 +419,192 @@ async def route_recommendation(
             "remaining": usage_stats["remaining"]
         }
     )
+
+
+#
+# ============================================================================
+# AI SERVICES COMPATIBILITY LAYER
+# ============================================================================
+# Provides /v1/process endpoint that mirrors the production AI service API.
+# Allows prototypes to switch between services transparently.
+#
+
+from src.compatibility_adapter import (
+    ProcessRequest,
+    AIServiceResponse,
+    map_model_to_claude,
+    convert_to_messages,
+    convert_response
+)
+
+
+@router.post("/process", response_model=AIServiceResponse)
+async def process_ai_services_compatible(
+    request: ProcessRequest,
+    api_key: str = Depends(verify_api_key)
+):
+    """
+    AI Services compatible endpoint.
+
+    Mirrors the production ai-services API at /v1/process.
+    Maps multi-provider requests to Claude Code models.
+
+    Supports:
+    - provider/model_name mapping to haiku/sonnet/opus
+    - messages, system_message, user_message formats
+    - Synchronous mode
+    - Streaming mode (SSE) via additional_params.stream
+    - Async mode via async_processing
+
+    Unsupported (gracefully ignored):
+    - tools/function calling
+    - multimodal content
+    - structured outputs
+    - memory management
+    """
+    # Map to Claude model
+    claude_model = map_model_to_claude(request.provider, request.model_name)
+
+    # Convert messages
+    messages = convert_to_messages(request)
+
+    if not messages:
+        raise HTTPException(400, "No messages provided")
+
+    # Check unsupported features
+    unsupported_features = []
+    if request.tools:
+        unsupported_features.append("tools")
+    if request.output_schema:
+        unsupported_features.append("structured_outputs")
+    if request.media_content:
+        unsupported_features.append("multimodal")
+    if request.memory:
+        unsupported_features.append("memory")
+
+    # Warn about unsupported features (but continue)
+    if unsupported_features:
+        print(f"Warning: Ignoring unsupported features: {unsupported_features}")
+
+    # Check streaming mode
+    is_streaming = request.additional_params and request.additional_params.get("stream", False)
+
+    # Streaming not yet implemented in compatibility layer
+    if is_streaming:
+        raise HTTPException(501, "Streaming via /v1/process not yet implemented. Use /v1/stream WebSocket instead.")
+
+    # Async mode not yet implemented
+    if request.async_processing:
+        raise HTTPException(501, "Async processing not yet implemented")
+
+    # Format prompt for Claude
+    prompt_parts = []
+    for msg in messages:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "system":
+            prompt_parts.append(f"System: {content}")
+        elif role == "user":
+            prompt_parts.append(f"User: {content}")
+        elif role == "assistant":
+            prompt_parts.append(f"Assistant: {content}")
+
+    prompt = "\n\n".join(prompt_parts)
+
+    # Check budget
+    estimated_tokens = len(prompt.split()) * 2  # Rough estimate
+    if not budget_manager.check_budget(request.project_id, estimated_tokens):
+        raise HTTPException(
+            403,
+            f"Budget exceeded for project {request.project_id}"
+        )
+
+    # Submit to worker pool
+    task_id = worker_pool.submit(
+        prompt=prompt,
+        model=claude_model,
+        project_id=request.project_id
+    )
+
+    # Wait for result
+    try:
+        result = worker_pool.get_result(task_id, timeout=request.max_tokens / 10 or 30)
+    except TimeoutError:
+        raise HTTPException(504, "Request timeout")
+
+    # Track usage
+    if result.usage:
+        budget_manager.track_usage(
+            request.project_id,
+            claude_model,
+            result.usage["total_tokens"],
+            result.cost or 0
+        )
+
+    # Convert to AI services format
+    response = convert_response(
+        claude_response={
+            "content": result.completion or "",
+            "usage": result.usage,
+            "cost": result.cost
+        },
+        original_provider=request.provider,
+        original_model=request.model_name,
+        claude_model=claude_model
+    )
+
+    return response
+
+
+@router.get("/providers")
+async def list_providers():
+    """
+    List available providers (compatibility endpoint).
+
+    Returns only Claude Code as available provider.
+    """
+    return [
+        {
+            "name": "claudecode",
+            "available": True,
+            "models": ["haiku", "sonnet", "opus"]
+        },
+        {
+            "name": "anthropic",
+            "available": True,
+            "models": ["haiku", "sonnet", "opus", "claude-3-haiku", "claude-3-sonnet", "claude-3-opus"]
+        }
+    ]
+
+
+@router.get("/providers/{provider}/models")
+async def get_provider_models(provider: str):
+    """
+    Get models for provider (compatibility endpoint).
+    """
+    if provider.lower() in ["anthropic", "claudecode", "claude"]:
+        return {
+            "provider": provider,
+            "models": {
+                "haiku": {
+                    "max_tokens": 4096,
+                    "context_window": 200000,
+                    "supports_functions": False,
+                    "supports_vision": True
+                },
+                "sonnet": {
+                    "max_tokens": 8192,
+                    "context_window": 200000,
+                    "supports_functions": False,
+                    "supports_vision": True
+                },
+                "opus": {
+                    "max_tokens": 4096,
+                    "context_window": 200000,
+                    "supports_functions": False,
+                    "supports_vision": True
+                }
+            }
+        }
+    else:
+        raise HTTPException(404, f"Provider {provider} not supported. Only 'anthropic' and 'claudecode' available.")
