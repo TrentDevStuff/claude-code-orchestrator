@@ -45,6 +45,9 @@ class WorkerDaemon:
         self.pid_file = self.base_dir / ".daemon-pid"
         self.state_file = self.base_dir / ".daemon-state.json"
 
+        # FIX: Detect claude CLI path at startup
+        self.claude_path = shutil.which("claude") or "claude"
+
         # Track active workers: {initiative_id: {worker_file: info}}
         self.active_workers = {}
 
@@ -247,11 +250,11 @@ class WorkerDaemon:
                 output_file = (workspace_dir / "session_output.json").absolute()
                 script_content += (
                     f"$output = '{output_file}'\n"
-                    f"claude -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json 2>&1 | Out-File -FilePath $output -Encoding UTF8\n"
+                    f"{self.claude_path} -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json 2>&1 | Out-File -FilePath $output -Encoding UTF8\n"
                 )
             else:
                 script_content += (
-                    f"claude -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json\n"
+                    f"{self.claude_path} -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json\n"
                 )
         else:
             # Bash script — read file into variable, pass as quoted argument
@@ -272,11 +275,11 @@ class WorkerDaemon:
                 output_file = (workspace_dir / "session_output.json").absolute()
                 script_content += (
                     f"output='{output_file}'\n"
-                    f"claude -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json > \"$output\" 2>&1\n"
+                    f"{self.claude_path} -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json > \"$output\" 2>&1\n"
                 )
             else:
                 script_content += (
-                    f"claude -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json\n"
+                    f"{self.claude_path} -p \"$prompt\" --model {model} --dangerously-skip-permissions --output-format json\n"
                 )
 
         script_file.write_text(script_content, encoding="utf-8")
