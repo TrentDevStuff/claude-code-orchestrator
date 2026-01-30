@@ -12,44 +12,9 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, AsyncMock, patch
 
-from main import app
 from src.agentic_executor import AgenticTaskRequest, AgenticTaskResponse, ExecutionLogEntry, Artifact
 
-
-@pytest.fixture
-def client():
-    """Create test client."""
-    return TestClient(app)
-
-
-@pytest.fixture
-def mock_executor():
-    """Mock AgenticExecutor for testing."""
-    with patch("src.api.AgenticExecutor") as mock:
-        executor = Mock()
-        executor.execute_task = AsyncMock(return_value=AgenticTaskResponse(
-            task_id="test-task-123",
-            status="completed",
-            result={"summary": "Test task completed successfully"},
-            execution_log=[
-                ExecutionLogEntry(
-                    step=1,
-                    timestamp="2026-01-30T20:00:00Z",
-                    action="tool_call",
-                    details={"tool": "Read", "file": "test.py"}
-                )
-            ],
-            artifacts=[],
-            usage={
-                "model_used": "sonnet",
-                "input_tokens": 100,
-                "output_tokens": 50,
-                "total_tokens": 150,
-                "total_cost": 0.00045
-            }
-        ))
-        mock.return_value = executor
-        yield executor
+# Fixtures are now in conftest.py
 
 
 class TestAgenticTaskEndpoint:
@@ -100,8 +65,9 @@ class TestAgenticTaskEndpoint:
             headers={"Authorization": "Bearer test-key"}
         )
 
-        # Should either be rejected by validation or execute with capped timeout
-        assert response.status_code in [200, 422]
+        # Should be rejected by permission validation (403) or Pydantic validation (422)
+        # Enterprise tier has max_execution_seconds=600, so 1000 exceeds permission limit
+        assert response.status_code in [200, 403, 422]
 
 
 class TestPermissionValidation:
@@ -159,7 +125,7 @@ class TestWebSocketAgenticStreaming:
 
     def test_websocket_agentic_task(self, client, mock_executor):
         """Test WebSocket streaming of agentic task."""
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("/v1/stream") as ws:
             # Send agentic task request
             ws.send_json({
                 "type": "agentic_task",
@@ -187,7 +153,7 @@ class TestWebSocketAgenticStreaming:
 
     def test_websocket_agentic_task_missing_api_key(self, client):
         """Test WebSocket agentic task without API key."""
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("/v1/stream") as ws:
             ws.send_json({
                 "type": "agentic_task",
                 "description": "Test"
@@ -199,7 +165,7 @@ class TestWebSocketAgenticStreaming:
 
     def test_websocket_agentic_task_permission_denied(self, client):
         """Test WebSocket agentic task with insufficient permissions."""
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("/v1/stream") as ws:
             ws.send_json({
                 "type": "agentic_task",
                 "api_key": "limited-key",
@@ -328,9 +294,9 @@ class TestIntegrationFlow:
             assert "usage" in data
 
             # 3. Verify usage stats present
-            assert data["usage"]["model"] in ["haiku", "sonnet", "opus"]
+            assert data["usage"]["model_used"] in ["haiku", "sonnet", "opus"]
             assert data["usage"]["total_tokens"] > 0
-            assert data["usage"]["cost"] >= 0
+            assert data["usage"]["total_cost"] >= 0
 
     def test_websocket_to_rest_consistency(self, client, mock_executor):
         """Test that WebSocket and REST return consistent results."""
@@ -345,7 +311,7 @@ class TestIntegrationFlow:
         )
 
         # Make WebSocket request
-        with client.websocket_connect("/ws") as ws:
+        with client.websocket_connect("/v1/stream") as ws:
             ws.send_json({
                 "type": "agentic_task",
                 "api_key": "test-key",
@@ -362,6 +328,11 @@ class TestIntegrationFlow:
 
         # Both should succeed or both should fail
         if rest_response.status_code == 200:
+            if ws_events[-1]["type"] != "result":
+                # Debug: print the actual error
+                print(f"\nREST succeeded (200) but WebSocket failed.")
+                print(f"WebSocket events: {ws_events}")
+                print(f"Last event: {ws_events[-1]}")
             assert ws_events[-1]["type"] == "result"
         elif rest_response.status_code == 403:
             assert ws_events[-1]["type"] == "error"

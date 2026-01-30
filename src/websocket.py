@@ -208,7 +208,7 @@ class WebSocketStreamer:
             return
 
         # Validate permissions
-        validation = await self.permission_manager.validate_task_request(
+        validation = self.permission_manager.validate_task_request(
             api_key=api_key,
             requested_tools=allow_tools,
             requested_agents=allow_agents,
@@ -296,14 +296,22 @@ class WebSocketStreamer:
         # Execute task (currently blocking - would need async streaming in executor)
         response = await executor.execute_task(request)
 
-        # Send result
+        # Send result (handle both Pydantic models and plain dicts)
+        def to_dict(obj):
+            """Convert Pydantic model to dict, or return as-is if already dict."""
+            if hasattr(obj, 'model_dump'):
+                return obj.model_dump()
+            elif hasattr(obj, 'dict'):
+                return obj.dict()
+            return obj
+
         await websocket.send_json({
             "type": "result",
             "status": response.status,
             "result": response.result,
-            "execution_log": [entry.dict() for entry in response.execution_log],
-            "artifacts": [artifact.dict() for artifact in response.artifacts],
-            "usage": response.usage.dict() if response.usage else None
+            "execution_log": [to_dict(entry) for entry in response.execution_log],
+            "artifacts": [to_dict(artifact) for artifact in response.artifacts],
+            "usage": to_dict(response.usage) if response.usage else None
         })
 
         # Log completion
