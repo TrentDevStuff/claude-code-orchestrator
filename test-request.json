@@ -1,0 +1,8 @@
+{
+  "model": "haiku",
+  "messages": [
+    {"role": "user", "content": "Say hello in exactly 5 words!"}
+  ],
+  "project_id": "test",
+  "max_tokens": 100
+}

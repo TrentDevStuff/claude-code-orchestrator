@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # Claude Code API Service
+  claude-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: claude-api-service
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - MAX_WORKERS=10
+      - DATABASE_PATH=/data/budgets.db
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=INFO
+    volumes:
+      # Mount Claude CLI credentials (required for API to work)
+      - ~/.claude:/root/.claude:ro
+      # Persistent storage for database
+      - ./data:/data
+      # Optional: Mount code for development
+      # - ./src:/app/src
+      # - ./main.py:/app/main.py
+    depends_on:
+      - redis
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - claude-network
+
+  # Redis Cache (optional but recommended)
+  redis:
+    image: redis:7-alpine
+    container_name: claude-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - claude-network
+
+volumes:
+  # Persistent volume for Redis data
+  redis-data:
+    driver: local
+
+networks:
+  # Internal network for services
+  claude-network:
+    driver: bridge

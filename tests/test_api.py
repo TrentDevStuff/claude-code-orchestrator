@@ -13,10 +13,13 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import Mock, patch, AsyncMock
 import asyncio
+import tempfile
+import os
 
 from main import app
 from src.worker_pool import WorkerPool, TaskResult, TaskStatus
 from src.budget_manager import BudgetManager
+from src.auth import AuthManager
 
 
 @pytest.fixture
@@ -40,14 +43,38 @@ def mock_budget_manager():
     return manager
 
 
+@pytest.fixture
+def mock_auth_manager():
+    """Mock auth manager with a test API key."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+        db_path = tmp.name
+
+    try:
+        manager = AuthManager(db_path=db_path)
+        test_key = manager.generate_key(project_id="test-project", rate_limit=1000)
+        yield manager, test_key
+    finally:
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+@pytest.fixture
+def auth_headers(mock_auth_manager):
+    """Generate auth headers with valid API key."""
+    _, api_key = mock_auth_manager
+    return {"Authorization": f"Bearer {api_key}"}
+
+
 # ============================================================================
 # Test: POST /v1/chat/completions
 # ============================================================================
 
-def test_chat_completion_success(client, mock_worker_pool, mock_budget_manager):
+def test_chat_completion_success(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test successful chat completion."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget check
         mock_budget_manager.check_budget.return_value = True
@@ -75,13 +102,15 @@ def test_chat_completion_success(client, mock_worker_pool, mock_budget_manager):
         )
 
         # Make request
-        response = client.post("/v1/chat/completions", json={
-            "messages": [
-                {"role": "user", "content": "Hello, Claude!"}
-            ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+        response = client.post("/v1/chat/completions",
+            headers=auth_headers,
+            json={
+                "messages": [
+                    {"role": "user", "content": "Hello, Claude!"}
+                ],
+                "model": "haiku"
+            }
+        )
 
         assert response.status_code == 200
         data = response.json()
@@ -94,10 +123,12 @@ def test_chat_completion_success(client, mock_worker_pool, mock_budget_manager):
         assert data["project_id"] == "test-project"
 
 
-def test_chat_completion_auto_model_selection(client, mock_worker_pool, mock_budget_manager):
+def test_chat_completion_auto_model_selection(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test chat completion with automatic model selection."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget check
         mock_budget_manager.check_budget.return_value = True
@@ -125,12 +156,11 @@ def test_chat_completion_auto_model_selection(client, mock_worker_pool, mock_bud
         )
 
         # Make request without specifying model
-        response = client.post("/v1/chat/completions", json={
+        response = client.post("/v1/chat/completions", headers=auth_headers, json={
             "messages": [
                 {"role": "user", "content": "Analyze this complex system architecture"}
-            ],
-            "project_id": "test-project"
-        })
+            ]
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -139,10 +169,12 @@ def test_chat_completion_auto_model_selection(client, mock_worker_pool, mock_bud
         assert data["model"] == "sonnet"
 
 
-def test_chat_completion_budget_exceeded(client, mock_worker_pool, mock_budget_manager):
+def test_chat_completion_budget_exceeded(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test chat completion when budget is exceeded."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget check - budget exceeded
         mock_budget_manager.check_budget.return_value = False
@@ -155,22 +187,23 @@ def test_chat_completion_budget_exceeded(client, mock_worker_pool, mock_budget_m
         }
 
         # Make request
-        response = client.post("/v1/chat/completions", json={
+        response = client.post("/v1/chat/completions", headers=auth_headers, json={
             "messages": [
                 {"role": "user", "content": "Hello!"}
             ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+            "model": "haiku"
+            })
 
         assert response.status_code == 429
         assert "Budget exceeded" in response.json()["detail"]
 
 
-def test_chat_completion_task_failed(client, mock_worker_pool, mock_budget_manager):
+def test_chat_completion_task_failed(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test chat completion when task fails."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget check
         mock_budget_manager.check_budget.return_value = True
@@ -188,13 +221,12 @@ def test_chat_completion_task_failed(client, mock_worker_pool, mock_budget_manag
         )
 
         # Make request
-        response = client.post("/v1/chat/completions", json={
+        response = client.post("/v1/chat/completions", headers=auth_headers, json={
             "messages": [
                 {"role": "user", "content": "Hello!"}
             ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+            "model": "haiku"
+            })
 
         assert response.status_code == 500
         assert "Task failed" in response.json()["detail"]
@@ -204,10 +236,12 @@ def test_chat_completion_task_failed(client, mock_worker_pool, mock_budget_manag
 # Test: POST /v1/batch
 # ============================================================================
 
-def test_batch_processing_success(client, mock_worker_pool, mock_budget_manager):
+def test_batch_processing_success(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test successful batch processing."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager
         mock_budget_manager.get_usage.return_value = {
@@ -230,15 +264,14 @@ def test_batch_processing_success(client, mock_worker_pool, mock_budget_manager)
         mock_worker_pool.get_result.side_effect = task_results
 
         # Make batch request
-        response = client.post("/v1/batch", json={
+        response = client.post("/v1/batch", headers=auth_headers, json={
             "prompts": [
                 {"prompt": "Task 1", "id": "1"},
                 {"prompt": "Task 2", "id": "2"},
                 {"prompt": "Task 3", "id": "3"}
             ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+            "model": "haiku"
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -251,10 +284,12 @@ def test_batch_processing_success(client, mock_worker_pool, mock_budget_manager)
         assert data["total_tokens"] == 75
 
 
-def test_batch_processing_partial_failure(client, mock_worker_pool, mock_budget_manager):
+def test_batch_processing_partial_failure(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test batch processing with some failures."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager
         mock_budget_manager.get_usage.return_value = {
@@ -288,15 +323,14 @@ def test_batch_processing_partial_failure(client, mock_worker_pool, mock_budget_
         mock_worker_pool.get_result.side_effect = task_results
 
         # Make batch request
-        response = client.post("/v1/batch", json={
+        response = client.post("/v1/batch", headers=auth_headers, json={
             "prompts": [
                 {"prompt": "Task 1"},
                 {"prompt": "Task 2"},
                 {"prompt": "Task 3"}
             ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+            "model": "haiku"
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -312,9 +346,11 @@ def test_batch_processing_partial_failure(client, mock_worker_pool, mock_budget_
 # Test: GET /v1/usage
 # ============================================================================
 
-def test_usage_endpoint(client, mock_budget_manager):
+def test_usage_endpoint(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test usage statistics endpoint."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock usage stats
         mock_budget_manager.get_usage.return_value = {
@@ -329,7 +365,7 @@ def test_usage_endpoint(client, mock_budget_manager):
         }
 
         # Make request
-        response = client.get("/v1/usage?project_id=test-project&period=month")
+        response = client.get("/v1/usage?period=month", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.json()
@@ -344,15 +380,17 @@ def test_usage_endpoint(client, mock_budget_manager):
         assert data["remaining"] == 95000
 
 
-def test_usage_endpoint_invalid_period(client, mock_budget_manager):
+def test_usage_endpoint_invalid_period(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test usage endpoint with invalid period."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager to raise ValueError
         mock_budget_manager.get_usage.side_effect = ValueError("Invalid period: invalid")
 
         # Make request
-        response = client.get("/v1/usage?project_id=test-project&period=invalid")
+        response = client.get("/v1/usage?period=invalid", headers=auth_headers)
 
         assert response.status_code == 400
 
@@ -361,9 +399,11 @@ def test_usage_endpoint_invalid_period(client, mock_budget_manager):
 # Test: POST /v1/route
 # ============================================================================
 
-def test_route_endpoint_haiku(client, mock_budget_manager):
+def test_route_endpoint_haiku(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test routing recommendation for simple task."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager
         mock_budget_manager.get_usage.return_value = {
@@ -374,11 +414,10 @@ def test_route_endpoint_haiku(client, mock_budget_manager):
         }
 
         # Make request with simple prompt
-        response = client.post("/v1/route", json={
+        response = client.post("/v1/route", headers=auth_headers, json={
             "prompt": "List all files",
-            "context_size": 50,
-            "project_id": "test-project"
-        })
+            "context_size": 50
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -388,9 +427,11 @@ def test_route_endpoint_haiku(client, mock_budget_manager):
         assert data["budget_status"]["remaining"] == 99000
 
 
-def test_route_endpoint_sonnet(client, mock_budget_manager):
+def test_route_endpoint_sonnet(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test routing recommendation for complex task."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager
         mock_budget_manager.get_usage.return_value = {
@@ -401,11 +442,10 @@ def test_route_endpoint_sonnet(client, mock_budget_manager):
         }
 
         # Make request with complex prompt
-        response = client.post("/v1/route", json={
+        response = client.post("/v1/route", headers=auth_headers, json={
             "prompt": "Analyze and refactor this codebase architecture",
-            "context_size": 5000,
-            "project_id": "test-project"
-        })
+            "context_size": 5000
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -414,9 +454,11 @@ def test_route_endpoint_sonnet(client, mock_budget_manager):
         assert "Complex reasoning keywords" in data["reasoning"]
 
 
-def test_route_endpoint_opus(client, mock_budget_manager):
+def test_route_endpoint_opus(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test routing recommendation for large context."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager
         mock_budget_manager.get_usage.return_value = {
@@ -427,11 +469,10 @@ def test_route_endpoint_opus(client, mock_budget_manager):
         }
 
         # Make request with large context
-        response = client.post("/v1/route", json={
+        response = client.post("/v1/route", headers=auth_headers, json={
             "prompt": "Review this code",
-            "context_size": 15000,
-            "project_id": "test-project"
-        })
+            "context_size": 15000
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -440,9 +481,11 @@ def test_route_endpoint_opus(client, mock_budget_manager):
         assert "Large context requires Opus" in data["reasoning"]
 
 
-def test_route_endpoint_low_budget(client, mock_budget_manager):
+def test_route_endpoint_low_budget(client, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test routing recommendation with low budget."""
-    with patch('src.api.budget_manager', mock_budget_manager):
+    auth_manager, _ = mock_auth_manager
+    with patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget manager - low budget
         mock_budget_manager.get_usage.return_value = {
@@ -453,11 +496,10 @@ def test_route_endpoint_low_budget(client, mock_budget_manager):
         }
 
         # Make request (should force haiku due to budget)
-        response = client.post("/v1/route", json={
+        response = client.post("/v1/route", headers=auth_headers, json={
             "prompt": "Analyze this complex system",
-            "context_size": 5000,
-            "project_id": "test-project"
-        })
+            "context_size": 5000
+            })
 
         assert response.status_code == 200
         data = response.json()
@@ -470,10 +512,12 @@ def test_route_endpoint_low_budget(client, mock_budget_manager):
 # Test: Budget Enforcement
 # ============================================================================
 
-def test_budget_enforcement_blocks_request(client, mock_worker_pool, mock_budget_manager):
+def test_budget_enforcement_blocks_request(client, mock_worker_pool, mock_budget_manager, mock_auth_manager, auth_headers):
     """Test that budget enforcement blocks requests when limit exceeded."""
+    auth_manager, _ = mock_auth_manager
     with patch('src.api.worker_pool', mock_worker_pool), \
-         patch('src.api.budget_manager', mock_budget_manager):
+         patch('src.api.budget_manager', mock_budget_manager), \
+         patch('src.auth.auth_manager', auth_manager):
 
         # Mock budget check - budget exceeded
         mock_budget_manager.check_budget.return_value = False
@@ -482,13 +526,12 @@ def test_budget_enforcement_blocks_request(client, mock_worker_pool, mock_budget
         }
 
         # Make request
-        response = client.post("/v1/chat/completions", json={
+        response = client.post("/v1/chat/completions", headers=auth_headers, json={
             "messages": [
                 {"role": "user", "content": "Hello!"}
             ],
-            "model": "haiku",
-            "project_id": "test-project"
-        })
+            "model": "haiku"
+            })
 
         # Should be blocked
         assert response.status_code == 429
