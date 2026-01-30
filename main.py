@@ -46,7 +46,7 @@ async def lifespan(app: FastAPI):
     audit_logger = AuditLogger(db_path="data/budgets.db")
 
     # Initialize API services
-    initialize_services(worker_pool, budget_manager)
+    initialize_services(worker_pool, budget_manager, permission_manager)
     initialize_auth(auth_manager)
 
     # Initialize WebSocket service

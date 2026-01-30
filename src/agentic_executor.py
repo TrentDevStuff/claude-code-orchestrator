@@ -246,8 +246,7 @@ class AgenticExecutor:
         await self.budget_manager.track_usage(
             project_id=request.project_id,
             model=model,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
+            tokens=input_tokens + output_tokens,
             cost=actual_cost
         )
 

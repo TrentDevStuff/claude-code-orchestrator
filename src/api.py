@@ -8,7 +8,8 @@ Provides endpoints for:
 - Model routing recommendations
 """
 
-from fastapi import APIRouter, HTTPException, Query, Depends
+from fastapi import APIRouter, HTTPException, Query, Depends, Security
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import asyncio
@@ -130,13 +131,15 @@ router = APIRouter(prefix="/v1", tags=["API"])
 # Global instances (will be initialized in main.py)
 worker_pool: Optional[WorkerPool] = None
 budget_manager: Optional[BudgetManager] = None
+permission_manager: Optional[PermissionManager] = None
 
 
-def initialize_services(pool: WorkerPool, budget: BudgetManager):
+def initialize_services(pool: WorkerPool, budget: BudgetManager, permissions: PermissionManager = None):
     """Initialize global service instances."""
-    global worker_pool, budget_manager
+    global worker_pool, budget_manager, permission_manager
     worker_pool = pool
     budget_manager = budget
+    permission_manager = permissions
 
 
 # ============================================================================
@@ -619,7 +622,8 @@ async def get_provider_models(provider: str):
 @router.post("/task", response_model=AgenticTaskResponse)
 async def execute_agentic_task(
     request: AgenticTaskRequest,
-    api_key: str = Depends(verify_api_key)
+    project_id: str = Depends(verify_api_key),
+    credentials: HTTPAuthorizationCredentials = Security(HTTPBearer())
 ):
     """
     Execute an agentic task with permission validation.
@@ -631,7 +635,8 @@ async def execute_agentic_task(
 
     Args:
         request: AgenticTaskRequest with task details
-        api_key: Validated API key from auth middleware
+        project_id: Project ID from validated API key
+        credentials: Raw API key credentials for permission check
 
     Returns:
         AgenticTaskResponse with execution results
@@ -641,7 +646,12 @@ async def execute_agentic_task(
         HTTPException 500: Execution error
     """
     # Validate permissions BEFORE creating sandbox
-    permission_manager = PermissionManager()
+    if permission_manager is None:
+        raise HTTPException(status_code=500, detail="Permission manager not initialized")
+
+    # Get actual API key from credentials
+    api_key = credentials.credentials
+
     validation = permission_manager.validate_task_request(
         api_key=api_key,
         requested_tools=request.allow_tools,
