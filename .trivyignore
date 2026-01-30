@@ -1,0 +1,5 @@
+# Trivy Ignore File
+# Add CVEs here that are false positives or accepted risks
+
+# Example:
+# CVE-2023-XXXXX  # Description of why this is accepted
