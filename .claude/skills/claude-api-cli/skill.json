@@ -1,0 +1,15 @@
+{
+  "name": "claude-api-cli",
+  "version": "1.0.0",
+  "description": "Claude Code API Service CLI management. Use when user wants to manage the API service (start/stop/check status), create/manage API keys, test endpoints, or check service health. Commands: service (start/stop/restart/status), health (check/deps/ping), keys (create/list/revoke/permissions), test (completion/task/agents/skills/all).",
+  "author": "Claude Code Orchestrator",
+  "user_interface": {
+    "type": "direct",
+    "invocation": "Read SKILL.md for command reference, then execute CLI commands directly"
+  },
+  "tags": ["cli", "api-management", "service-management", "testing", "health-checks"],
+  "dependencies": {
+    "cli_tool": "claude-api",
+    "service": "claude-code-api-service"
+  }
+}
