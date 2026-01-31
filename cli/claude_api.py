@@ -8,6 +8,9 @@ from rich.console import Console
 from .config import config_manager
 from .utils import print_error, print_success, print_info
 
+# Import command groups
+from .commands import service, health, keys
+
 app = typer.Typer(
     name="claude-api",
     help="Claude Code API Service CLI - Manage and monitor your API service",
@@ -15,6 +18,11 @@ app = typer.Typer(
 )
 
 console = Console()
+
+# Register command groups
+app.add_typer(service.app, name="service")
+app.add_typer(health.app, name="health")
+app.add_typer(keys.app, name="keys")
 
 
 @app.command()
