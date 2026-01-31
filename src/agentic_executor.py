@@ -20,6 +20,7 @@ from .worker_pool import WorkerPool, TaskResult
 from .budget_manager import BudgetManager
 from .model_router import auto_select_model
 from .audit_logger import AuditLogger
+from .agent_discovery import AgentSkillDiscovery
 
 
 # Pydantic Models
@@ -84,7 +85,8 @@ class AgenticExecutor:
         self,
         worker_pool: Optional[WorkerPool] = None,
         budget_manager: Optional[BudgetManager] = None,
-        audit_logger: Optional[AuditLogger] = None
+        audit_logger: Optional[AuditLogger] = None,
+        agent_discovery: Optional[AgentSkillDiscovery] = None
     ):
         """
         Initialize AgenticExecutor.
@@ -93,10 +95,12 @@ class AgenticExecutor:
             worker_pool: WorkerPool instance (creates new if None)
             budget_manager: BudgetManager instance (creates new if None)
             audit_logger: AuditLogger instance for comprehensive event logging (creates new if None)
+            agent_discovery: AgentSkillDiscovery instance for discovering available agents/skills
         """
         self.worker_pool = worker_pool or WorkerPool(max_workers=5)
         self.budget_manager = budget_manager or BudgetManager()
         self.audit_logger = audit_logger or AuditLogger()
+        self.agent_discovery = agent_discovery or AgentSkillDiscovery()
 
     async def execute_task(self, request: AgenticTaskRequest) -> AgenticTaskResponse:
         """
@@ -303,6 +307,20 @@ class AgenticExecutor:
         if not request.description:
             raise ValueError("Description is required")
 
+        # Validate agents exist
+        if request.allow_agents:
+            agent_validation = self.agent_discovery.validate_agents(request.allow_agents)
+            missing = [name for name, exists in agent_validation.items() if not exists]
+            if missing:
+                raise ValueError(f"Unknown agents requested: {', '.join(missing)}")
+
+        # Validate skills exist
+        if request.allow_skills:
+            skill_validation = self.agent_discovery.validate_skills(request.allow_skills)
+            missing = [name for name, exists in skill_validation.items() if not exists]
+            if missing:
+                raise ValueError(f"Unknown skills requested: {', '.join(missing)}")
+
     def _auto_select_model(self, request: AgenticTaskRequest) -> str:
         """
         Auto-select model based on task complexity.
@@ -349,7 +367,8 @@ class AgenticExecutor:
         """
         Build prompt with agentic configuration.
 
-        This includes the task description plus metadata about allowed capabilities.
+        This includes the task description plus metadata about allowed capabilities,
+        including discovered agent/skill descriptions and invocation examples.
         """
         prompt_parts = [
             f"Task: {request.description}",
@@ -361,19 +380,33 @@ class AgenticExecutor:
         if request.allow_tools:
             prompt_parts.append(f"- Allowed Tools: {', '.join(request.allow_tools)}")
 
+        # Add agent descriptions and invocation examples
         if request.allow_agents:
-            prompt_parts.append(f"- Allowed Agents: {', '.join(request.allow_agents)}")
+            agent_section = self.agent_discovery.build_agent_prompt_section(request.allow_agents)
+            if agent_section:
+                prompt_parts.append(agent_section)
+            else:
+                # Fallback if discovery fails
+                prompt_parts.append(f"- Allowed Agents: {', '.join(request.allow_agents)}")
 
+        # Add skill descriptions and invocation examples
         if request.allow_skills:
-            prompt_parts.append(f"- Allowed Skills: {', '.join(request.allow_skills)}")
+            skill_section = self.agent_discovery.build_skill_prompt_section(request.allow_skills)
+            if skill_section:
+                prompt_parts.append(skill_section)
+            else:
+                # Fallback if discovery fails
+                prompt_parts.append(f"- Allowed Skills: {', '.join(request.allow_skills)}")
 
         prompt_parts.extend([
             "",
             "Instructions:",
             "1. Complete the task using available tools, agents, and skills",
-            "2. Be thorough and accurate",
-            "3. Generate any requested artifacts in the working directory",
-            "4. Provide a clear summary when done",
+            "2. Use Task(subagent_type='agent-name', ...) to invoke agents",
+            "3. Use Skill(command='skill-name') to invoke skills",
+            "4. Be thorough and accurate",
+            "5. Generate any requested artifacts in the working directory",
+            "6. Provide a clear summary when done",
         ])
 
         return "\n".join(prompt_parts)

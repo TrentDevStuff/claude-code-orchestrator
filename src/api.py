@@ -680,3 +680,78 @@ async def execute_agentic_task(
             status_code=500,
             detail=f"Task execution failed: {str(e)}"
         )
+
+# ============================================================================
+# Agent/Skill Discovery Endpoint
+# ============================================================================
+
+class AgentListItem(BaseModel):
+    """Information about an available agent."""
+    name: str
+    description: str
+    tools: List[str]
+    model: str
+
+
+class SkillListItem(BaseModel):
+    """Information about an available skill."""
+    name: str
+    description: str
+    command: str
+
+
+class CapabilitiesResponse(BaseModel):
+    """Response listing available agents and skills."""
+    agents: List[AgentListItem]
+    skills: List[SkillListItem]
+    agents_count: int
+    skills_count: int
+
+
+@router.get("/capabilities", response_model=CapabilitiesResponse)
+async def get_capabilities(
+    project_id: str = Depends(verify_api_key)
+):
+    """
+    List available Claude Code agents and skills.
+
+    Discovers agents from ~/.claude/agents/ and skills from ~/.claude/skills/
+    that can be invoked through the /v1/task endpoint.
+
+    Returns:
+        CapabilitiesResponse with all discovered agents and skills
+    """
+    from src.agent_discovery import AgentSkillDiscovery
+
+    discovery = AgentSkillDiscovery()
+
+    # Discover agents
+    agents_dict = discovery.discover_agents()
+    agents = [
+        AgentListItem(
+            name=info.name,
+            description=info.description,
+            tools=info.tools,
+            model=info.model
+        )
+        for info in agents_dict.values()
+    ]
+
+    # Discover skills (exclude agent-wrapped ones)
+    skills_dict = discovery.discover_skills()
+    skills = [
+        SkillListItem(
+            name=info.name,
+            description=info.description,
+            command=info.command
+        )
+        for info in skills_dict.values()
+        if info.user_interface != "agent-wrapped"
+    ]
+
+    return CapabilitiesResponse(
+        agents=sorted(agents, key=lambda x: x.name),
+        skills=sorted(skills, key=lambda x: x.name),
+        agents_count=len(agents),
+        skills_count=len(skills)
+    )
