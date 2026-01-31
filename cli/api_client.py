@@ -1,0 +1,125 @@
+"""API client wrapper for Claude Code API Service"""
+
+import requests
+from typing import Any, Dict, Optional
+from requests.exceptions import RequestException, ConnectionError, Timeout
+from .utils import print_error
+
+
+class APIError(Exception):
+    """API request error"""
+    pass
+
+
+class APIClient:
+    """HTTP client for Claude Code API Service"""
+
+    def __init__(self, base_url: str = "http://localhost:8006", api_key: Optional[str] = None):
+        self.base_url = base_url.rstrip('/')
+        self.api_key = api_key
+        self.session = requests.Session()
+
+        if api_key:
+            self.session.headers.update({
+                "Authorization": f"Bearer {api_key}"
+            })
+
+    def _handle_error(self, e: Exception, endpoint: str) -> None:
+        """Handle request errors with helpful messages"""
+        if isinstance(e, ConnectionError):
+            raise APIError(
+                f"Could not connect to service at {self.base_url}\n"
+                f"  → Is the service running? Try: claude-api service start"
+            )
+        elif isinstance(e, Timeout):
+            raise APIError(f"Request to {endpoint} timed out")
+        elif isinstance(e, RequestException):
+            raise APIError(f"Request failed: {str(e)}")
+        else:
+            raise APIError(f"Unexpected error: {str(e)}")
+
+    def get(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make GET request"""
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            response = self.session.get(url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self._handle_error(e, endpoint)
+
+    def post(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make POST request"""
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            response = self.session.post(url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self._handle_error(e, endpoint)
+
+    def delete(self, endpoint: str, **kwargs) -> Dict[str, Any]:
+        """Make DELETE request"""
+        url = f"{self.base_url}{endpoint}"
+
+        try:
+            response = self.session.delete(url, **kwargs)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            self._handle_error(e, endpoint)
+
+    def is_service_running(self) -> bool:
+        """Check if service is running"""
+        try:
+            response = self.session.get(f"{self.base_url}/health", timeout=2)
+            return response.status_code == 200
+        except:
+            return False
+
+    def get_health(self) -> Dict[str, Any]:
+        """Get service health"""
+        return self.get("/health")
+
+    def get_capabilities(self) -> Dict[str, Any]:
+        """Get agent/skill capabilities"""
+        return self.get("/v1/capabilities")
+
+    def chat_completion(self, model: str, messages: list, **kwargs) -> Dict[str, Any]:
+        """Create chat completion"""
+        payload = {
+            "model": model,
+            "messages": messages,
+            **kwargs
+        }
+        return self.post("/v1/chat/completions", json=payload)
+
+    def create_task(self, description: str, allow_tools: Optional[list] = None,
+                   allow_agents: Optional[list] = None, allow_skills: Optional[list] = None,
+                   timeout: int = 300, max_cost: float = 1.0, **kwargs) -> Dict[str, Any]:
+        """Create agentic task"""
+        payload = {
+            "description": description,
+            "timeout": timeout,
+            "max_cost": max_cost,
+            **kwargs
+        }
+
+        if allow_tools:
+            payload["allow_tools"] = allow_tools
+        if allow_agents:
+            payload["allow_agents"] = allow_agents
+        if allow_skills:
+            payload["allow_skills"] = allow_skills
+
+        return self.post("/v1/task", json=payload)
+
+    def get_usage(self, project_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get usage statistics"""
+        params = {}
+        if project_id:
+            params["project_id"] = project_id
+
+        return self.get("/v1/usage", params=params)
