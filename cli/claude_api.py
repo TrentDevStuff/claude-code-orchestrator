@@ -9,7 +9,7 @@ from .config import config_manager
 from .utils import print_error, print_success, print_info
 
 # Import command groups
-from .commands import service, health, keys
+from .commands import service, health, keys, usage, workers, tasks
 
 app = typer.Typer(
     name="claude-api",
@@ -23,6 +23,9 @@ console = Console()
 app.add_typer(service.app, name="service")
 app.add_typer(health.app, name="health")
 app.add_typer(keys.app, name="keys")
+app.add_typer(usage.app, name="usage")
+app.add_typer(workers.app, name="workers")
+app.add_typer(tasks.app, name="tasks")
 
 
 @app.command()
