@@ -9,7 +9,7 @@ from .config import config_manager
 from .utils import print_error, print_success, print_info
 
 # Import command groups
-from .commands import service, health, keys, usage, workers, tasks, test
+from .commands import service, health, keys, usage, workers, tasks, test, discovery
 
 app = typer.Typer(
     name="claude-api",
@@ -27,6 +27,8 @@ app.add_typer(usage.app, name="usage")
 app.add_typer(workers.app, name="workers")
 app.add_typer(tasks.app, name="tasks")
 app.add_typer(test.app, name="test")
+app.add_typer(discovery.agents_app, name="agents")
+app.add_typer(discovery.skills_app, name="skills")
 
 
 @app.command()

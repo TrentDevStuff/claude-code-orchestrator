@@ -1,111 +1,166 @@
 # Getting Started
 
-Complete guide to setting up and using the Claude Code API.
+Complete guide to setting up and using the Claude Code API Service.
+
+## Overview
+
+This is a **self-hosted API service** that wraps your Claude Code CLI subscription, enabling any application to use Claude with full agentic capabilities. It's not a cloud service - you run it on your own machine.
 
 ## Prerequisites
 
-- Python 3.8 or higher
-- pip (Python package manager)
-- An API key (get one at https://claude.ai/api)
+- **Python 3.11+**
+- **Claude Code CLI** installed and authenticated ([get it here](https://docs.anthropic.com/en/docs/claude-code))
+- **Redis** (optional - for caching)
+- **Docker** (optional - for containerized deployment)
 
-## Step 1: Get Your API Key
-
-1. Visit https://claude.ai/api
-2. Sign up or log in
-3. Navigate to "API Keys"
-4. Click "Generate New Key"
-5. Copy the key (displayed only once)
-6. Store it safely
-
-## Step 2: Set Up Environment Variable
-
-Store your API key securely using an environment variable:
+Verify Claude Code CLI is working:
 
 ```bash
-export CLAUDE_API_KEY="sk-proj-your-key-here"
+claude --version
 ```
 
-Or in a `.env` file:
+## Step 1: Clone and Install
 
-```
-CLAUDE_API_KEY=sk-proj-your-key-here
+```bash
+# Clone the repository
+git clone https://github.com/TrentDevStuff/claude-code-api-service.git
+cd claude-code-api-service
+
+# Create virtual environment (recommended)
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Install CLI (optional but recommended)
+pip install -e .
 ```
 
-Load it with `python-dotenv`:
+## Step 2: Start the API Service
+
+```bash
+# Start in foreground
+python main.py
+
+# Or use CLI for background operation
+claude-api service start --background
+```
+
+The server starts at `http://localhost:8006`.
+
+Verify it's running:
+
+```bash
+curl http://localhost:8006/health
+# Or
+claude-api health ping
+```
+
+Visit `http://localhost:8006/docs` for interactive API documentation.
+
+## Step 3: Create API Keys
+
+API keys control access to the service. Create them using the CLI or Python.
+
+### Using CLI (Recommended)
+
+```bash
+# Create an enterprise-tier key (full access)
+claude-api keys create --project-id my-app --profile enterprise
+
+# Create a limited key
+claude-api keys create --project-id test --profile pro --rate-limit 50
+
+# List all keys
+claude-api keys list
+
+# View key permissions
+claude-api keys permissions YOUR_KEY
+```
+
+### Using Python
 
 ```python
-from dotenv import load_dotenv
-import os
+from src.auth import AuthManager
+from src.permission_manager import PermissionManager
 
-load_dotenv()
-api_key = os.getenv("CLAUDE_API_KEY")
+# Create key
+auth = AuthManager()
+api_key = auth.generate_key("my-project", rate_limit=100)
+
+# Set permissions
+perm = PermissionManager()
+perm.apply_default_profile(api_key, "enterprise")  # or "pro", "free"
+
+print(f"API Key: {api_key}")
 ```
 
-## Step 3: Install the Python Client
+### Permission Tiers
 
-```bash
-pip install claude-code-client
-```
-
-Verify installation:
-
-```bash
-python -c "import claude_code_client; print('OK')"
-```
+| Tier | Tools | Agents | Rate Limit | Max Cost/Task |
+|------|-------|--------|------------|---------------|
+| **Free** | Read, Grep | None | 10/min | $0.10 |
+| **Pro** | Read, Grep, Bash, Edit, Write | Standard | 100/min | $1.00 |
+| **Enterprise** | All | All | Custom | $10.00 |
 
 ## Step 4: Make Your First Request
 
-Create `hello.py`:
-
-```python
-from claude_code_client import ClaudeClient
-
-client = ClaudeClient()  # Uses CLAUDE_API_KEY env var
-
-response = client.complete("What is Python?")
-print(response.content)
-```
-
-Run it:
+### Using curl
 
 ```bash
-python hello.py
+# Chat completion
+curl -X POST http://localhost:8006/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "haiku",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+
+# Agentic task
+curl -X POST http://localhost:8006/v1/task \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "description": "List Python files in the current directory",
+    "allow_tools": ["Bash", "Glob"],
+    "timeout": 60
+  }'
 ```
 
-Expected output:
+### Using Python Client
 
-```
-Python is a high-level, interpreted programming language...
-```
-
-## Step 5: Try an Agentic Task
-
-Create `analyze.py`:
+The client library is included in the `client/` directory:
 
 ```python
-from claude_code_client import ClaudeClient
+import sys
+sys.path.insert(0, '/path/to/claude-code-api-service')
+from client import ClaudeClient
 
-client = ClaudeClient()
-
-result = client.execute_task(
-    description="Count the lines of Python code in the current directory",
-    allow_tools=["Bash"]
+# Create client
+client = ClaudeClient(
+    base_url="http://localhost:8006",
+    api_key="YOUR_API_KEY"
 )
 
-print(f"Status: {result.status}")
-print(f"Result: {result.result['summary']}")
-print(f"Cost: ${result.usage.total_cost:.4f}")
-```
+# Simple completion
+response = client.complete("Explain Python decorators")
+print(response.content)
+print(f"Cost: ${response.cost:.4f}")
 
-Run it:
-
-```bash
-python analyze.py
+# Agentic task with tools
+result = client.agentic_task(
+    description="Count lines of code in src/",
+    allow_tools=["Bash", "Glob"],
+    timeout=120
+)
+print(f"Result: {result}")
 ```
 
 ## Understanding Models
 
-The API has three models:
+The API supports three models from your Claude Code subscription:
 
 | Model | Speed | Cost | Best For |
 |-------|-------|------|----------|
@@ -113,22 +168,97 @@ The API has three models:
 | **Sonnet** | Balanced | Medium | General purpose, most use cases |
 | **Opus** | Slower | Most Expensive | Complex reasoning, analysis |
 
-The API auto-selects based on your task. Specify manually:
+Specify a model or let the API auto-select:
 
 ```python
+# Explicit model
 response = client.complete("...", model="opus")
+
+# Auto-select based on complexity (default)
+response = client.complete("...", model="auto")
+```
+
+## Using Your Claude Code Ecosystem
+
+The API discovers agents and skills from your `~/.claude/` directory:
+
+```bash
+# See what's available
+curl http://localhost:8006/v1/capabilities \
+  -H "Authorization: Bearer YOUR_KEY"
+```
+
+Use them in agentic tasks:
+
+```python
+result = client.agentic_task(
+    description="Analyze meeting transcript for workflow insights",
+    allow_agents=["company-workflow-analyst"],
+    allow_skills=["semantic-text-matcher"],
+    allow_tools=["Read", "Write"],
+    timeout=300
+)
+```
+
+## WebSocket Streaming
+
+For real-time responses:
+
+```python
+for event in client.stream("Write a poem about coding"):
+    print(event, end='', flush=True)
+```
+
+Or with JavaScript:
+
+```javascript
+const ws = new WebSocket('ws://localhost:8006/v1/stream');
+
+ws.send(JSON.stringify({
+  type: 'chat',
+  model: 'sonnet',
+  messages: [{role: 'user', content: 'Write a poem'}],
+  api_key: 'YOUR_KEY'
+}));
+
+ws.onmessage = (event) => {
+  const msg = JSON.parse(event.data);
+  if (msg.type === 'token') {
+    console.log(msg.content);
+  }
+};
+```
+
+## Managing Costs
+
+Track usage and set limits:
+
+```python
+# Check cost after request
+response = client.complete("Test")
+print(f"Cost: ${response.cost:.4f}")
+print(f"Tokens: {response.usage.total_tokens}")
+
+# Set budget limit for task
+result = client.agentic_task(
+    description="...",
+    max_cost=1.0  # Fail if would exceed $1.00
+)
+
+# Check usage stats
+curl http://localhost:8006/v1/usage?project_id=my-app \
+  -H "Authorization: Bearer YOUR_KEY"
 ```
 
 ## Error Handling
 
-Always handle errors gracefully:
-
 ```python
-from claude_code_client import (
+from client import (
     ClaudeAPIError,
     AuthenticationError,
     RateLimitError,
-    PermissionError
+    BudgetExceededError,
+    TimeoutError
 )
 
 try:
@@ -136,153 +266,126 @@ try:
 except AuthenticationError:
     print("Invalid API key")
 except RateLimitError:
-    print("Rate limited, retry later")
-except PermissionError:
-    print("Tool not allowed for your key")
+    print("Rate limited - wait and retry")
+except BudgetExceededError:
+    print("Budget exceeded")
+except TimeoutError:
+    print("Request timed out")
 except ClaudeAPIError as e:
-    print(f"Error: {e}")
-```
-
-## Using WebSocket Streaming
-
-Stream results in real-time:
-
-```python
-for event in client.stream_task("Analyze code"):
-    if event["type"] == "thinking":
-        print(f"🤔 Thinking...")
-    elif event["type"] == "tool_call":
-        print(f"🔧 {event['tool']}")
-    elif event["type"] == "result":
-        print(f"✅ Done!")
-        print(event['summary'])
-```
-
-## Async Client
-
-For async applications:
-
-```python
-import asyncio
-from claude_code_client import AsyncClaudeClient
-
-async def main():
-    client = AsyncClaudeClient()
-    response = await client.complete("Hello")
-    print(response.content)
-
-asyncio.run(main())
-```
-
-## Managing Costs
-
-Monitor and control spending:
-
-```python
-# Check response cost
-response = client.complete("Test")
-print(f"Cost: ${response.usage.cost:.4f}")
-
-# Set budget limit
-result = client.execute_task(
-    description="...",
-    max_cost=5.00  # Fail if exceeds $5
-)
-
-# Check usage
-print(f"Tokens: {response.usage.total_tokens}")
-print(f"Input: {response.usage.input_tokens}")
-print(f"Output: {response.usage.output_tokens}")
+    print(f"API error: {e}")
 ```
 
 ## Debugging
 
-Enable logging to see detailed information:
+Enable logging:
 
 ```python
 import logging
-
 logging.basicConfig(level=logging.DEBUG)
-client = ClaudeClient()
 ```
 
-Or use environment variable:
+Or check service logs:
 
 ```bash
-CLAUDE_DEBUG=1 python script.py
+# If running in background
+claude-api service logs --follow
 ```
 
 ## Common Issues
 
+### "Service not running"
+
+```bash
+claude-api service start --background
+```
+
 ### "Invalid API key"
 
-- Check CLAUDE_API_KEY environment variable is set
-- Verify key from https://claude.ai/api/keys
-- Ensure key is not revoked
+```bash
+# List existing keys
+claude-api keys list
 
-### "Rate limit exceeded"
-
-- Wait 60 seconds before retrying
-- Upgrade to Pro tier for higher limits
-- Implement exponential backoff:
-
-```python
-import time
-
-def retry_with_backoff(func, max_retries=3):
-    for attempt in range(max_retries):
-        try:
-            return func()
-        except RateLimitError:
-            wait_time = 2 ** attempt
-            print(f"Rate limited, waiting {wait_time}s")
-            time.sleep(wait_time)
+# Create new key
+claude-api keys create --project-id test --profile enterprise
 ```
 
 ### "Permission denied"
 
-- Tool/agent/skill not allowed for your API key
-- Upgrade tier or request specific permission
-- Check API Keys dashboard for permissions
+Your API key doesn't have permission for the requested tool/agent:
 
-### Network timeouts
+```bash
+# Check permissions
+claude-api keys permissions YOUR_KEY
 
-- Increase timeout parameter:
-
-```python
-client = ClaudeClient(timeout=600)  # 10 minutes
+# Upgrade to enterprise
+claude-api keys permissions YOUR_KEY --set-profile enterprise
 ```
 
-- Break large tasks into smaller ones
-- Check API status at https://claude.ai/status
+### "Rate limit exceeded"
+
+Wait and retry, or increase rate limit:
+
+```python
+import time
+
+def retry_with_backoff(fn, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except RateLimitError:
+            wait_time = 2 ** attempt
+            print(f"Rate limited, waiting {wait_time}s")
+            time.sleep(wait_time)
+    raise Exception("Max retries exceeded")
+```
+
+### "Claude CLI not found"
+
+Install Claude Code CLI:
+
+```bash
+# Visit: https://docs.anthropic.com/en/docs/claude-code
+```
+
+## Docker Deployment
+
+For containerized deployment:
+
+```bash
+# Build and start
+docker-compose up -d
+
+# Check health
+curl http://localhost:8006/health
+
+# View logs
+docker-compose logs -f
+```
 
 ## Next Steps
 
-1. Read [API Reference](../api-reference/) for detailed docs
-2. Check [examples](../examples/) for use cases
+1. Explore [API Reference](../api-reference/) for all endpoints
+2. Check [examples](../examples/) for common use cases
 3. Review [security best practices](security-best-practices.md)
-4. Explore [agentic features guide](agentic-api-guide.md)
+4. Learn about [agentic features](agentic-api-guide.md)
+5. Set up [production deployment](../deployment/production.md)
 
 ## FAQ
 
-**Q: How much does it cost?**
-A: See [pricing](../api-reference/completions.md#pricing). Start with Free tier, upgrade as needed.
+**Q: What's the cost?**
+A: This uses your existing Claude Code subscription - no additional cost. Token costs are standard Claude pricing.
 
-**Q: Can I use it in production?**
-A: Yes! Use Enterprise tier for production workloads with custom limits.
+**Q: Can I run this in production?**
+A: Yes! See [production deployment guide](../deployment/production.md) for best practices.
 
-**Q: What data do you collect?**
-A: See Privacy Policy at https://claude.ai/privacy. We don't use requests to train models.
+**Q: How is this different from the Anthropic API?**
+A: This wraps Claude Code CLI, giving you access to your `~/.claude/` agents, skills, and full tool capabilities (Read, Write, Bash, etc.).
 
-**Q: Can I deploy locally?**
-A: See [Docker deployment](../deployment/docker-compose.md).
-
-**Q: How do I report security issues?**
-A: Email security@claude.ai with details.
+**Q: Can multiple applications use this?**
+A: Yes! Create separate API keys for each application with appropriate permissions.
 
 ## Support
 
-- **Docs**: https://claude.ai/docs
-- **Status**: https://claude.ai/status
-- **Email**: support@claude.ai
-- **GitHub**: https://github.com/anthropics/claude-code-api
+- **CLI Help**: `claude-api --help`
+- **Docs**: Check `/docs` endpoint when service is running
+- **Issues**: https://github.com/TrentDevStuff/claude-code-api-service/issues

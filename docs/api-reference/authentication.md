@@ -4,21 +4,53 @@ All API requests require authentication with an API key.
 
 ## Getting Your API Key
 
-1. Sign up at https://claude.ai/api
-2. Go to API Keys section
-3. Click "Generate New Key"
-4. Copy the key (shown only once)
-5. Store securely (treat like a password)
+Since this is a self-hosted service, you create API keys locally using the CLI or Python.
+
+### Using CLI (Recommended)
+
+```bash
+# Install CLI first
+pip install -e .
+
+# Create an enterprise-tier key
+claude-api keys create --project-id my-app --profile enterprise
+
+# Create with custom rate limit
+claude-api keys create --project-id test --profile pro --rate-limit 50
+
+# List all keys
+claude-api keys list
+
+# View a key's permissions
+claude-api keys permissions YOUR_KEY
+```
+
+### Using Python
+
+```python
+from src.auth import AuthManager
+from src.permission_manager import PermissionManager
+
+# Create key
+auth = AuthManager()
+api_key = auth.generate_key("my-project", rate_limit=100)
+
+# Set permissions
+perm = PermissionManager()
+perm.apply_default_profile(api_key, "enterprise")
+
+print(f"API Key: {api_key}")
+```
 
 ## Using Your API Key
 
-### HTTP Header
+### HTTP Header (Recommended)
 
-Recommended method. Include in `Authorization` header:
+Include in the `Authorization` header:
 
 ```bash
-curl -X POST https://api.claude.ai/v1/chat/completions \
-  -H "Authorization: Bearer sk-proj-your-key-here" \
+curl -X POST http://localhost:8006/v1/chat/completions \
+  -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"messages": [{"role": "user", "content": "Hello"}]}'
 ```
@@ -28,43 +60,43 @@ curl -X POST https://api.claude.ai/v1/chat/completions \
 Fallback for WebSocket or special cases:
 
 ```bash
-ws://localhost:8000/v1/stream?api_key=sk-proj-your-key-here
+ws://localhost:8006/v1/stream?api_key=YOUR_API_KEY
 ```
 
-### Environment Variable
-
-```bash
-export CLAUDE_API_KEY="sk-proj-your-key-here"
-```
-
-Python client will automatically use this:
+### In Python Client
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
-# Uses CLAUDE_API_KEY environment variable
-client = ClaudeClient()
+# Explicit API key
+client = ClaudeClient(
+    base_url="http://localhost:8006",
+    api_key="YOUR_API_KEY"
+)
 
-# Or explicit
-client = ClaudeClient(api_key="sk-proj-your-key-here")
+# Or from environment variable
+import os
+client = ClaudeClient(
+    base_url="http://localhost:8006",
+    api_key=os.getenv("CLAUDE_API_KEY")
+)
 ```
 
 ## API Key Security
 
-### ✅ Do
+### Best Practices
 
+**Do:**
 - Store keys in environment variables
-- Use `.env` files (never commit)
-- Rotate keys regularly
-- Use different keys per environment (dev/prod)
-- Restrict key permissions to minimum needed
+- Use `.env` files (never commit to git)
+- Create separate keys per application/environment
+- Use minimum required permissions
+- Rotate keys periodically
 
-### ❌ Don't
-
+**Don't:**
 - Commit keys to version control
 - Expose in client-side code
 - Share keys via email/chat
-- Use the same key for multiple projects
 - Log or print API keys
 
 ### Securing Keys in Code
@@ -79,14 +111,17 @@ api_key = os.getenv("CLAUDE_API_KEY")
 if not api_key:
     raise ValueError("CLAUDE_API_KEY environment variable not set")
 
-client = ClaudeClient(api_key=api_key)
+client = ClaudeClient(
+    base_url="http://localhost:8006",
+    api_key=api_key
+)
 ```
 
 ### .env File Example
 
-```
-CLAUDE_API_KEY=sk-proj-your-key-here
-CLAUDE_API_URL=https://api.claude.ai/v1
+```bash
+CLAUDE_API_KEY=cc_your_key_here
+CLAUDE_API_URL=http://localhost:8006
 ```
 
 Add to `.gitignore`:
@@ -104,10 +139,40 @@ Each API key has specific permissions:
 - **Tools allowed**: Which tools can be used (Read, Grep, Bash, etc.)
 - **Agents allowed**: Which agents can be spawned
 - **Skills allowed**: Which skills can be invoked
-- **Rate limits**: Requests per minute, tokens per day
-- **Budget limit**: Maximum monthly spend
+- **Rate limits**: Requests per minute
+- **Budget limit**: Maximum cost per task
 
-Manage permissions in the [API Keys dashboard](https://claude.ai/api/keys).
+Manage permissions with the CLI:
+
+```bash
+# View permissions
+claude-api keys permissions YOUR_KEY
+
+# Change profile
+claude-api keys permissions YOUR_KEY --set-profile enterprise
+
+# Update max cost
+claude-api keys permissions YOUR_KEY --max-cost 5.00
+```
+
+Or with Python:
+
+```python
+from src.permission_manager import PermissionManager
+
+perm = PermissionManager()
+
+# Apply preset profile
+perm.apply_default_profile(api_key, "enterprise")
+
+# Or custom permissions
+perm.set_profile(api_key, {
+    "allowed_tools": ["Read", "Grep", "Bash"],
+    "blocked_tools": ["Write"],
+    "allowed_agents": ["company-workflow-analyst"],
+    "max_cost_per_task": 0.50
+})
+```
 
 ## Permission Tiers
 
@@ -116,7 +181,7 @@ Manage permissions in the [API Keys dashboard](https://claude.ai/api/keys).
 - Tools: Read, Grep (read-only)
 - Agents: None
 - Rate limit: 10 requests/minute
-- Budget: $0.10/month
+- Max cost: $0.10/task
 - Timeout: 60 seconds
 
 ### Pro
@@ -124,7 +189,7 @@ Manage permissions in the [API Keys dashboard](https://claude.ai/api/keys).
 - Tools: Read, Grep, Bash, Edit, Write
 - Agents: Standard agents
 - Rate limit: 100 requests/minute
-- Budget: $1.00/month
+- Max cost: $1.00/task
 - Timeout: 300 seconds (5 minutes)
 
 ### Enterprise
@@ -133,10 +198,8 @@ Manage permissions in the [API Keys dashboard](https://claude.ai/api/keys).
 - Agents: All
 - Skills: All
 - Rate limit: Custom
-- Budget: Custom
+- Max cost: Custom
 - Timeout: Custom
-
-Request Enterprise tier on your [account page](https://claude.ai/account).
 
 ## Error Responses
 
@@ -188,17 +251,28 @@ Request Enterprise tier on your [account page](https://claude.ai/account).
 
 If a key is compromised:
 
-1. Go to [API Keys dashboard](https://claude.ai/api/keys)
-2. Find the key
-3. Click "Revoke"
-4. Generate a new key
-5. Update your applications
+```bash
+# Using CLI
+claude-api keys revoke YOUR_KEY
+
+# Force without confirmation
+claude-api keys revoke YOUR_KEY --force
+```
+
+Or with Python:
+
+```python
+from src.auth import AuthManager
+
+auth = AuthManager()
+auth.revoke_key("YOUR_KEY")
+```
 
 Revoked keys stop working immediately.
 
 ## Rate Limiting
 
-The API enforces rate limits per API key:
+The API enforces rate limits per API key. Headers indicate current status:
 
 ```
 X-RateLimit-Limit: 100
@@ -206,19 +280,22 @@ X-RateLimit-Remaining: 95
 X-RateLimit-Reset: 1672531200
 ```
 
-When rate limited (429 response):
+When rate limited (429 response), implement backoff:
 
 ```python
 import time
-from claude_code_client import RateLimitError
+from client import RateLimitError
 
-while True:
-    try:
-        response = client.complete("...")
-        break
-    except RateLimitError as e:
-        # Back off and retry
-        time.sleep(60)
+def retry_with_backoff(fn, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except RateLimitError:
+            if attempt == max_retries - 1:
+                raise
+            wait = 2 ** attempt
+            print(f"Rate limited, waiting {wait}s")
+            time.sleep(wait)
 ```
 
 ## Token Budget
@@ -229,13 +306,13 @@ Track token usage and costs:
 response = client.complete("Test")
 
 print(f"Tokens: {response.usage.total_tokens}")
-print(f"Cost: ${response.usage.cost:.4f}")
+print(f"Cost: ${response.cost:.4f}")
 ```
 
 Set budgets to prevent overspend:
 
 ```python
-result = client.execute_task(
+result = client.agentic_task(
     description="Analyze code",
     max_cost=1.0  # Stop if exceeds $1.00
 )
@@ -243,19 +320,42 @@ result = client.execute_task(
 
 ## Monitoring Usage
 
-View usage on [API Keys dashboard](https://claude.ai/api/keys):
+Check usage via API:
 
-- Requests this month
-- Tokens used
-- Cost to date
-- Rate limit status
+```bash
+curl http://localhost:8006/v1/usage?project_id=my-app \
+  -H "Authorization: Bearer YOUR_KEY"
+```
 
-## Support
+Or CLI:
 
-Issues with authentication?
+```bash
+claude-api usage summary --period week
+claude-api usage by-project
+```
 
-- Check your API key is valid
-- Verify it's not revoked
-- Confirm it has required permissions
-- Check rate limit status
-- Contact support: support@claude.ai
+## Troubleshooting
+
+### "Invalid API key"
+
+```bash
+# List existing keys
+claude-api keys list
+
+# Create new key
+claude-api keys create --project-id test --profile enterprise
+```
+
+### "Permission denied"
+
+```bash
+# Check permissions
+claude-api keys permissions YOUR_KEY
+
+# Upgrade tier
+claude-api keys permissions YOUR_KEY --set-profile enterprise
+```
+
+### "Rate limit exceeded"
+
+Wait 60 seconds or implement exponential backoff (see above).

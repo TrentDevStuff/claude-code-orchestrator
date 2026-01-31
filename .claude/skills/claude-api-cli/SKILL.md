@@ -41,6 +41,24 @@ claude-api keys permissions KEY_PREFIX
 
 **Profiles:** `free`, `pro`, `enterprise`
 
+### Agent/Skill Discovery
+```bash
+# List available agents
+claude-api agents list --key API_KEY
+claude-api agents list --model haiku --key API_KEY
+
+# Agent details
+claude-api agents info AGENT_NAME --key API_KEY
+claude-api agents search KEYWORD --key API_KEY
+
+# List available skills
+claude-api skills list --key API_KEY
+
+# Skill details
+claude-api skills info SKILL_NAME --key API_KEY
+claude-api skills search KEYWORD --key API_KEY
+```
+
 ### Testing
 ```bash
 # Test all endpoints (requires API key)
@@ -95,6 +113,22 @@ claude-api test all --key THEIR_KEY
 # If they need a key first
 claude-api keys create --project-id test --profile enterprise
 # Then use returned key for testing
+```
+
+### User: "What agents/skills are available?"
+```bash
+# List all agents with their models
+claude-api agents list --key API_KEY
+
+# Find agents for a specific task
+claude-api agents search workflow --key API_KEY
+
+# See detailed info about an agent
+claude-api agents info workflow-sync-agent --key API_KEY
+
+# Same for skills
+claude-api skills list --key API_KEY
+claude-api skills search text --key API_KEY
 ```
 
 ### User: "Why isn't it working?"

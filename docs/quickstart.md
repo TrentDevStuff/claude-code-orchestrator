@@ -4,62 +4,114 @@ Get up and running with the Claude Code API in just 5 minutes.
 
 ## Prerequisites
 
-- Python 3.8+
-- An API key (get one at https://claude.ai/api)
+- Python 3.11+
+- Claude Code CLI installed ([get it here](https://docs.anthropic.com/en/docs/claude-code))
+- The API service running (see below)
 
-## Step 1: Install the Client
+## Step 1: Start the API Service
 
 ```bash
-pip install claude-code-client
+# Clone the repository (if you haven't)
+git clone https://github.com/TrentDevStuff/claude-code-api-service.git
+cd claude-code-api-service
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Start the server
+python main.py
 ```
 
-## Step 2: Set Your API Key
+Server starts at `http://localhost:8006`. Verify with:
 
 ```bash
-export CLAUDE_API_KEY="sk-proj-your-key-here"
+curl http://localhost:8006/health
+```
+
+## Step 2: Create an API Key
+
+Use the CLI or Python to create an API key:
+
+**Using CLI (recommended):**
+```bash
+# Install CLI
+pip install -e .
+
+# Create a key
+claude-api keys create --project-id my-app --profile enterprise
+```
+
+**Using Python:**
+```python
+from src.auth import AuthManager
+from src.permission_manager import PermissionManager
+
+auth = AuthManager()
+api_key = auth.generate_key("my-app", rate_limit=100)
+
+perm = PermissionManager()
+perm.apply_default_profile(api_key, "enterprise")
+
+print(f"Your API key: {api_key}")
 ```
 
 ## Step 3: Make Your First Request
 
 ### Simple Completion
 
+```bash
+curl -X POST http://localhost:8006/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "model": "haiku",
+    "messages": [{"role": "user", "content": "What is the capital of France?"}]
+  }'
+```
+
+### Using the Python Client
+
 ```python
-from claude_code_client import ClaudeClient
+import sys
+sys.path.insert(0, '/path/to/claude-code-api-service')
+from client import ClaudeClient
 
-client = ClaudeClient(api_key="sk-proj-your-key")
+client = ClaudeClient(
+    base_url="http://localhost:8006",
+    api_key="YOUR_API_KEY"
+)
 
-# Simple text completion
+# Simple completion
 response = client.complete("What is the capital of France?")
 print(response.content)
-# Output: The capital of France is Paris.
-
 print(f"Tokens used: {response.usage.total_tokens}")
-print(f"Cost: ${response.usage.cost:.4f}")
+print(f"Cost: ${response.cost:.4f}")
 ```
 
 ### Agentic Task
 
-```python
-# Execute an agentic task
-result = client.execute_task(
-    description="Count the number of Python files in the current directory",
-    allow_tools=["Bash"]
-)
-
-print(f"Status: {result.status}")
-print(f"Result: {result.result['summary']}")
-print(f"Cost: ${result.usage.total_cost:.4f}")
+```bash
+curl -X POST http://localhost:8006/v1/task \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -d '{
+    "description": "Count the number of Python files in the current directory",
+    "allow_tools": ["Bash", "Glob"],
+    "timeout": 60
+  }'
 ```
 
-### WebSocket Streaming
+Or with Python:
 
 ```python
-# Stream results in real-time
-for event in client.stream_task("Explain async/await in Python"):
-    if event["type"] == "thinking":
-        print(f"Thinking: {event['content'][:50]}...")
-    elif event["type"] == "result":
-        print(f"Done! Summary: {event['summary']}")
+result = client.agentic_task(
+    description="Count the number of Python files in the current directory",
+    allow_tools=["Bash", "Glob"],
+    timeout=60
+)
+
+print(f"Status: {result['status']}")
+print(f"Result: {result['result']}")
 ```
 
 ## Common Use Cases
@@ -67,54 +119,65 @@ for event in client.stream_task("Explain async/await in Python"):
 ### Analyze Code
 
 ```python
-result = client.execute_task(
+result = client.agentic_task(
     description="Analyze src/api.py for security issues",
     allow_tools=["Read", "Grep"],
     timeout=60
 )
 
-for artifact in result.artifacts:
-    print(f"Generated: {artifact.path}")
+for artifact in result.get('artifacts', []):
+    print(f"Generated: {artifact['path']}")
+```
+
+### Use Your Claude Code Agents
+
+```python
+# List available agents and skills
+import requests
+
+resp = requests.get(
+    "http://localhost:8006/v1/capabilities",
+    headers={"Authorization": "Bearer YOUR_API_KEY"}
+)
+print(resp.json())
+
+# Use an agent in a task
+result = client.agentic_task(
+    description="Extract workflow insights from meeting.txt",
+    allow_agents=["company-workflow-analyst"],
+    allow_skills=["semantic-text-matcher"],
+    allow_tools=["Read", "Write"]
+)
 ```
 
 ### Generate Documentation
 
 ```python
-result = client.execute_task(
+result = client.agentic_task(
     description="Generate API documentation for src/models.py",
     allow_tools=["Read"],
-    allow_agents=["documentation-generator"]
-)
-```
-
-### Generate Tests
-
-```python
-result = client.execute_task(
-    description="Generate test cases for the User model",
-    allow_tools=["Read"],
-    allow_agents=["test-generator"]
+    timeout=120
 )
 ```
 
 ## Error Handling
 
 ```python
-from claude_code_client import (
+from client import (
     ClaudeAPIError,
     AuthenticationError,
     RateLimitError,
-    PermissionError
+    BudgetExceededError
 )
 
 try:
     response = client.complete("Test")
 except AuthenticationError:
-    print("Invalid API key")
+    print("Invalid API key - create one with: claude-api keys create")
 except RateLimitError:
     print("Rate limit exceeded, retry later")
-except PermissionError:
-    print("You don't have permission to use this tool/agent")
+except BudgetExceededError:
+    print("Budget exceeded for this API key")
 except ClaudeAPIError as e:
     print(f"API error: {e}")
 ```
@@ -126,8 +189,26 @@ except ClaudeAPIError as e:
 - Check the [API Reference](api-reference/) for complete documentation
 - Review [security best practices](guides/security-best-practices.md)
 
-## Need Help?
+## Troubleshooting
 
-- Check the [FAQ](guides/getting-started.md#faq)
-- Review [error handling guide](guides/error-handling.md)
-- See [troubleshooting](guides/getting-started.md#troubleshooting)
+**Service not running?**
+```bash
+# Check health
+curl http://localhost:8006/health
+
+# Or use CLI
+claude-api health ping
+```
+
+**Invalid API key?**
+```bash
+# List keys
+claude-api keys list
+
+# Create new key
+claude-api keys create --project-id test --profile enterprise
+```
+
+**Need help?**
+- Check [CLI README](../cli/README.md) for command reference
+- See [error handling guide](guides/error-handling.md)

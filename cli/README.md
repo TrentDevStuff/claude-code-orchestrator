@@ -123,6 +123,43 @@ claude-api keys revoke cc_abc123... --force # Skip confirmation
 claude-api keys test cc_abc123...           # Verify if key is valid
 ```
 
+### Agent Discovery (`claude-api agents`)
+
+**List all agents:**
+```bash
+claude-api agents list --key cc_abc123...              # List all available agents
+claude-api agents list --model haiku --key cc_abc123... # Filter by model (haiku, sonnet, opus)
+claude-api agents list --json --key cc_abc123...       # JSON output
+```
+
+**Show agent details:**
+```bash
+claude-api agents info workflow-sync-agent --key cc_abc123...
+```
+
+**Search agents:**
+```bash
+claude-api agents search workflow --key cc_abc123...   # Search by keyword
+```
+
+### Skill Discovery (`claude-api skills`)
+
+**List all skills:**
+```bash
+claude-api skills list --key cc_abc123...              # List all available skills
+claude-api skills list --json --key cc_abc123...       # JSON output
+```
+
+**Show skill details:**
+```bash
+claude-api skills info semantic-text-matcher --key cc_abc123...
+```
+
+**Search skills:**
+```bash
+claude-api skills search text --key cc_abc123...       # Search by keyword
+```
+
 ### Testing (`claude-api test`)
 
 **Test individual endpoints:**
