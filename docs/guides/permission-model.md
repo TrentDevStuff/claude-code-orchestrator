@@ -82,7 +82,7 @@ Full access with custom limits.
 
 ### In Dashboard
 
-1. Go to https://claude.ai/api/keys
+1. Go to the CLI (`claude-api keys permissions YOUR_KEY`)
 2. Select an API key
 3. Click "Permissions"
 4. Choose what to allow:
@@ -234,7 +234,7 @@ api_key = os.getenv(f"CLAUDE_API_KEY_{env.upper()}")
 ### 4. Monitor Permission Errors
 
 ```python
-from claude_code_client import PermissionError
+from client import PermissionError
 
 try:
     result = client.execute_task(description="...")
@@ -260,7 +260,7 @@ try:
     )
 except PermissionError:
     print("Need Pro tier for this task")
-    print("Visit https://claude.ai/api/pricing")
+    print("Visit the CLI to upgrade your key's permissions")
 ```
 
 ## Permission Inheritance
@@ -346,7 +346,7 @@ All permission checks are logged:
 ```
 
 View logs in API Keys dashboard:
-1. Go to https://claude.ai/api/keys/audit
+1. Go to the CLI (`claude-api keys permissions YOUR_KEY`)/audit
 2. Filter by API key
 3. See all access attempts
 
@@ -364,7 +364,7 @@ View logs in API Keys dashboard:
 ```
 
 **Solutions:**
-1. Check key's permissions: https://claude.ai/api/keys
+1. Check key's permissions: the CLI (`claude-api keys permissions YOUR_KEY`)
 2. Upgrade to Pro tier for more tools
 3. Use allowed tools instead
 4. Contact support if in doubt
@@ -408,4 +408,4 @@ View logs in API Keys dashboard:
 - [Get API key](getting-started.md#getting-your-api-key)
 - [Security best practices](security-best-practices.md)
 - [Agentic API guide](agentic-api-guide.md)
-- [Upgrade plan](https://claude.ai/pricing)
+- [Upgrade plan](getting-started.md#permission-tiers)

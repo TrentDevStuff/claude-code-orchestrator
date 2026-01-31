@@ -9,7 +9,7 @@ Comprehensive guide to handling API errors gracefully.
 Invalid or missing API key.
 
 ```python
-from claude_code_client import AuthenticationError
+from client import AuthenticationError
 
 try:
     response = client.complete("Test")
@@ -26,7 +26,7 @@ except AuthenticationError as e:
 
 **Solutions:**
 1. Check key exists: `echo $CLAUDE_API_KEY`
-2. Verify key at https://claude.ai/api/keys
+2. Verify key at the CLI (`claude-api keys list`)
 3. Generate new key if revoked
 4. Ensure key starts with `sk-proj-`
 
@@ -35,7 +35,7 @@ except AuthenticationError as e:
 Tool/agent/skill not allowed for API key.
 
 ```python
-from claude_code_client import PermissionError
+from client import PermissionError
 
 try:
     result = client.execute_task(
@@ -64,7 +64,7 @@ except PermissionError as e:
 Too many requests in short time.
 
 ```python
-from claude_code_client import RateLimitError
+from client import RateLimitError
 import time
 
 def retry_with_backoff(func, max_retries=3):
@@ -97,7 +97,7 @@ response = retry_with_backoff(lambda: client.complete("Test"))
 Task exceeded time limit.
 
 ```python
-from claude_code_client import TimeoutError
+from client import TimeoutError
 
 try:
     result = client.execute_task(
@@ -130,7 +130,7 @@ except TimeoutError:
 Task would exceed budget limit.
 
 ```python
-from claude_code_client import CostExceededError
+from client import CostExceededError
 
 try:
     result = client.execute_task(
@@ -159,7 +159,7 @@ except CostExceededError as e:
 Generic API error.
 
 ```python
-from claude_code_client import ClaudeAPIError
+from client import ClaudeAPIError
 
 try:
     response = client.complete("Test")
@@ -172,13 +172,13 @@ except ClaudeAPIError as e:
 **Solutions:**
 1. Check error message
 2. Review request parameters
-3. Check API status: https://claude.ai/status
+3. Check API status: http://localhost:8006/health
 4. Contact support if persistent
 
 ## Handling Errors Comprehensively
 
 ```python
-from claude_code_client import (
+from client import (
     ClaudeClient,
     AuthenticationError,
     PermissionError,
@@ -400,11 +400,11 @@ except PermissionError:
     Tool 'Bash' is not allowed for your API key.
 
     Solutions:
-    1. Upgrade to Pro tier: https://claude.ai/pricing
+    1. Upgrade to Pro tier: the permission model guide
     2. Request specific tool in dashboard
     3. Use Read/Grep instead of Bash
 
-    Need help? Contact support@claude.ai
+    Need help? Contact https://github.com/TrentDevStuff/claude-code-api-service/issues
     """)
 ```
 
@@ -450,7 +450,7 @@ Test with mock errors:
 ```python
 import pytest
 from unittest.mock import patch
-from claude_code_client import RateLimitError
+from client import RateLimitError
 
 @pytest.mark.asyncio
 async def test_rate_limit_retry():
@@ -533,6 +533,6 @@ except CostExceededError:
 ## Support
 
 Can't fix the error? Contact support:
-- **Email**: support@claude.ai
-- **Status**: https://claude.ai/status
-- **GitHub Issues**: https://github.com/anthropics/claude-code-api/issues
+- **Email**: https://github.com/TrentDevStuff/claude-code-api-service/issues
+- **Status**: http://localhost:8006/health
+- **GitHub Issues**: https://github.com/TrentDevStuff/claude-code-api-service/issues

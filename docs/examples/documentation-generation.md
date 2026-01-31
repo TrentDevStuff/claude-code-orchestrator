@@ -14,7 +14,7 @@ Use the agentic API to generate:
 ## Quick Example
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 
@@ -76,7 +76,7 @@ result = client.execute_task(
 Create `docs/generate.py`:
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 import os
 
 client = ClaudeClient()
@@ -202,7 +202,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install claude-code-client
+        run: pip install httpx
 
       - name: Generate documentation
         env:

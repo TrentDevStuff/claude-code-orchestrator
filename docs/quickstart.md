@@ -129,10 +129,28 @@ for artifact in result.get('artifacts', []):
     print(f"Generated: {artifact['path']}")
 ```
 
-### Use Your Claude Code Agents
+### Discover Available Agents & Skills
 
+**Using the CLI (recommended):**
+```bash
+# List all agents
+claude-api agents list --key YOUR_API_KEY
+
+# Search for workflow-related agents
+claude-api agents search workflow --key YOUR_API_KEY
+
+# Get detailed info about an agent
+claude-api agents info company-workflow-analyst --key YOUR_API_KEY
+
+# List all skills
+claude-api skills list --key YOUR_API_KEY
+
+# Search skills
+claude-api skills search text --key YOUR_API_KEY
+```
+
+**Using the API:**
 ```python
-# List available agents and skills
 import requests
 
 resp = requests.get(
@@ -140,8 +158,10 @@ resp = requests.get(
     headers={"Authorization": "Bearer YOUR_API_KEY"}
 )
 print(resp.json())
+```
 
-# Use an agent in a task
+**Use an agent in a task:**
+```python
 result = client.agentic_task(
     description="Extract workflow insights from meeting.txt",
     allow_agents=["company-workflow-analyst"],

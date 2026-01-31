@@ -113,7 +113,7 @@ Content-Type: application/json
 ### Code Analysis Task
 
 ```bash
-curl -X POST https://api.claude.ai/v1/task \
+curl -X POST http://localhost:8006/v1/task \
   -H "Authorization: Bearer sk-proj-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -128,7 +128,7 @@ curl -X POST https://api.claude.ai/v1/task \
 ### Documentation Generation Task
 
 ```bash
-curl -X POST https://api.claude.ai/v1/task \
+curl -X POST http://localhost:8006/v1/task \
   -H "Authorization: Bearer sk-proj-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -142,7 +142,7 @@ curl -X POST https://api.claude.ai/v1/task \
 ### Test Generation Task
 
 ```bash
-curl -X POST https://api.claude.ai/v1/task \
+curl -X POST http://localhost:8006/v1/task \
   -H "Authorization: Bearer sk-proj-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -231,7 +231,7 @@ curl -X POST https://api.claude.ai/v1/task \
 ## Python Client Example
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient(api_key="sk-proj-your-key")
 
@@ -258,7 +258,7 @@ For asynchronous task execution, poll the task status:
 
 ```bash
 # Start task
-curl -X POST https://api.claude.ai/v1/task \
+curl -X POST http://localhost:8006/v1/task \
   -H "Authorization: Bearer sk-proj-your-key" \
   -d '{"description": "..."}' \
   > task.json
@@ -267,7 +267,7 @@ TASK_ID=$(jq -r .id task.json)
 
 # Poll status
 while true; do
-  curl -X GET https://api.claude.ai/v1/task/$TASK_ID \
+  curl -X GET http://localhost:8006/v1/task/$TASK_ID \
     -H "Authorization: Bearer sk-proj-your-key"
 
   sleep 2

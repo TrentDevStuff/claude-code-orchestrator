@@ -180,15 +180,43 @@ response = client.complete("...", model="auto")
 
 ## Using Your Claude Code Ecosystem
 
-The API discovers agents and skills from your `~/.claude/` directory:
+The API discovers agents and skills from your `~/.claude/` directory.
+
+### Discover Available Agents & Skills
+
+**Using CLI (Recommended):**
 
 ```bash
-# See what's available
+# List all agents
+claude-api agents list --key YOUR_API_KEY
+
+# Filter by model
+claude-api agents list --model haiku --key YOUR_API_KEY
+
+# Search for specific agents
+claude-api agents search workflow --key YOUR_API_KEY
+
+# Get detailed agent information
+claude-api agents info company-workflow-analyst --key YOUR_API_KEY
+
+# List all skills
+claude-api skills list --key YOUR_API_KEY
+
+# Search skills
+claude-api skills search text --key YOUR_API_KEY
+
+# Get skill information
+claude-api skills info semantic-text-matcher --key YOUR_API_KEY
+```
+
+**Using API Endpoint:**
+
+```bash
 curl http://localhost:8006/v1/capabilities \
   -H "Authorization: Bearer YOUR_KEY"
 ```
 
-Use them in agentic tasks:
+### Use Them in Agentic Tasks
 
 ```python
 result = client.agentic_task(

@@ -21,7 +21,7 @@ Use the agentic API with the security-auditor agent to automatically find:
 Create `analyze_code.py`:
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 import json
 import os
 
@@ -141,7 +141,7 @@ For larger codebases, break into pieces:
 ```python
 import glob
 from concurrent.futures import ThreadPoolExecutor
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 
@@ -212,7 +212,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install claude-code-client
+        run: pip install httpx  # Required dependency for client
 
       - name: Run security audit
         env:
@@ -234,7 +234,7 @@ Create `.gitlab-ci.yml`:
 security_audit:
   image: python:3.11
   script:
-    - pip install claude-code-client
+    - pip install httpx  # Required dependency for client
     - python analyze_code.py
   artifacts:
     paths:
@@ -339,7 +339,7 @@ Check our own repository:
 ```bash
 # Analyze Claude Code API codebase
 python -c "
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 result = client.execute_task(

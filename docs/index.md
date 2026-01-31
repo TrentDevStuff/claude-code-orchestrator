@@ -76,6 +76,27 @@ for event in client.stream("Analyze this code for improvements"):
     print(event, end='', flush=True)
 ```
 
+## Agent & Skill Discovery
+
+Discover what agents and skills are available from your `~/.claude/` directory:
+
+```bash
+# List all agents with their models and tools
+claude-api agents list --key YOUR_API_KEY
+
+# Search for specific agents
+claude-api agents search workflow --key YOUR_API_KEY
+
+# Get detailed information about an agent
+claude-api agents info company-workflow-analyst --key YOUR_API_KEY
+
+# Discover skills
+claude-api skills list --key YOUR_API_KEY
+claude-api skills search text --key YOUR_API_KEY
+```
+
+See the [CLI README](../cli/README.md) for complete command reference.
+
 ## Core Concepts
 
 ### API Keys

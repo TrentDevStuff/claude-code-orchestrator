@@ -43,7 +43,7 @@ result = client.execute_task(
 ### Simple Task
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 
@@ -93,6 +93,77 @@ result = client.execute_task(
     description="Find semantically similar text in our codebase",
     allow_skills=["semantic-text-matcher"],
     allow_tools=["Read", "Grep"]
+)
+```
+
+## Discovering Available Agents & Skills
+
+Before using agents and skills, discover what's available in your `~/.claude/` directory.
+
+### Using the CLI
+
+```bash
+# List all agents
+claude-api agents list --key YOUR_API_KEY
+
+# Search for specific agents
+claude-api agents search workflow --key YOUR_API_KEY
+
+# Get detailed information
+claude-api agents info company-workflow-analyst --key YOUR_API_KEY
+
+# List all skills
+claude-api skills list --key YOUR_API_KEY
+
+# Search skills
+claude-api skills search text --key YOUR_API_KEY
+```
+
+### Using the API
+
+```python
+import requests
+
+response = requests.get(
+    "http://localhost:8006/v1/capabilities",
+    headers={"Authorization": "Bearer YOUR_API_KEY"}
+)
+
+capabilities = response.json()
+
+# List agent names
+print("Available agents:")
+for agent in capabilities['agents']:
+    print(f"  - {agent['name']} ({agent['model']})")
+
+# List skill names
+print("\nAvailable skills:")
+for skill in capabilities['skills']:
+    print(f"  - {skill['name']}")
+```
+
+### Finding the Right Agent
+
+Use the search feature to find agents by capability:
+
+```bash
+# Find workflow-related agents
+claude-api agents search workflow --key YOUR_API_KEY
+
+# Find security agents
+claude-api agents search security --key YOUR_API_KEY
+
+# Find documentation agents
+claude-api agents search doc --key YOUR_API_KEY
+```
+
+Then use the agent name in your task:
+
+```python
+result = client.execute_task(
+    description="Extract workflow from meeting transcript",
+    allow_agents=["company-workflow-analyst"],
+    allow_tools=["Read"]
 )
 ```
 
@@ -358,7 +429,7 @@ if result.usage.total_cost > 1.0:
 ## Error Handling
 
 ```python
-from claude_code_client import (
+from client import (
     ClaudeAPIError,
     TimeoutError,
     PermissionError,

@@ -63,7 +63,11 @@ Set up separate keys with specific permissions:
 - **Generation key**: Read, Write, Edit
 - **Admin key**: Full access
 
-Configure in [API Keys dashboard](https://claude.ai/api/keys).
+Configure using the CLI:
+
+```bash
+claude-api keys permissions YOUR_KEY --set-profile pro
+```
 
 ## Rate Limiting & Budget Enforcement
 
@@ -93,7 +97,7 @@ Implement backoff for rate limits:
 
 ```python
 import time
-from claude_code_client import RateLimitError
+from client import RateLimitError
 
 def make_request_with_retry():
     for attempt in range(3):
@@ -156,7 +160,7 @@ result = client.execute_task(
 Enable audit logging for compliance:
 
 ```python
-from claude_code_client import ClaudeClient, AuditLogger
+from client import ClaudeClient, AuditLogger
 
 audit_logger = AuditLogger()
 
@@ -181,7 +185,7 @@ for log in logs:
 ```bash
 # .env file (never commit)
 CLAUDE_API_KEY=sk-proj-...
-CLAUDE_API_URL=https://api.claude.ai/v1
+CLAUDE_API_URL=http://localhost:8006
 CLAUDE_TIMEOUT=300
 CLAUDE_MAX_COST=1.0
 ```
@@ -222,13 +226,13 @@ env:
 Always use HTTPS in production:
 
 ```python
-# ✅ Correct
+# Local development
 client = ClaudeClient(
-    base_url="https://api.claude.ai/v1",
+    base_url="http://localhost:8006",
     api_key=api_key
 )
 
-# Never use HTTP in production
+# In production, use HTTPS with a reverse proxy
 ```
 
 ## Error Handling
@@ -362,7 +366,7 @@ Found a security vulnerability?
 
 **DO NOT** open a public GitHub issue.
 
-Email security@claude.ai with:
+Open an issue at https://github.com/TrentDevStuff/claude-code-api-service/issues with:
 - Description of vulnerability
 - Steps to reproduce
 - Potential impact

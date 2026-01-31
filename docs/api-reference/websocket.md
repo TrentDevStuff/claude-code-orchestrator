@@ -141,7 +141,7 @@ Error occurred during task execution.
 ### Python Client Streaming
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient(api_key="sk-proj-your-key")
 
@@ -219,7 +219,7 @@ websocat "ws://localhost:8000/v1/stream?api_key=sk-proj-your-key"
 
 ```python
 import asyncio
-from claude_code_client import AsyncClaudeClient
+from client import AsyncClaudeClient
 
 async def main():
     client = AsyncClaudeClient(api_key="sk-proj-your-key")

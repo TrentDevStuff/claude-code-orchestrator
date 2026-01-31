@@ -13,7 +13,7 @@ Use the agentic API with the test-generator agent to create:
 ## Quick Start
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 
@@ -166,14 +166,14 @@ jobs:
           python-version: '3.11'
 
       - name: Install dependencies
-        run: pip install claude-code-client pytest
+        run: pip install httpx pytest
 
       - name: Generate tests
         env:
           CLAUDE_API_KEY: ${{ secrets.CLAUDE_API_KEY }}
         run: |
           python -c "
-          from claude_code_client import ClaudeClient
+          from client import ClaudeClient
           client = ClaudeClient()
           result = client.execute_task(
               description='Generate tests for new code in src/',

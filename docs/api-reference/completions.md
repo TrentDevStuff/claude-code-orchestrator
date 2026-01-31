@@ -91,7 +91,7 @@ Content-Type: application/json
 ### Basic Completion
 
 ```bash
-curl -X POST https://api.claude.ai/v1/chat/completions \
+curl -X POST http://localhost:8006/v1/chat/completions \
   -H "Authorization: Bearer sk-proj-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -120,7 +120,7 @@ Response:
 ### Multi-turn Conversation
 
 ```bash
-curl -X POST https://api.claude.ai/v1/chat/completions \
+curl -X POST http://localhost:8006/v1/chat/completions \
   -H "Authorization: Bearer sk-proj-your-key" \
   -H "Content-Type: application/json" \
   -d '{
@@ -216,7 +216,7 @@ Pricing is per token and depends on model:
 ## Python Client Example
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient(api_key="sk-proj-your-key")
 

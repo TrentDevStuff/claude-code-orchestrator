@@ -14,7 +14,7 @@ Workflows use multiple sequential or parallel tasks:
 ## Simple Workflow: Code Improvement
 
 ```python
-from claude_code_client import ClaudeClient
+from client import ClaudeClient
 
 client = ClaudeClient()
 
