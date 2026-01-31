@@ -9,7 +9,7 @@ from .config import config_manager
 from .utils import print_error, print_success, print_info
 
 # Import command groups
-from .commands import service, health, keys, usage, workers, tasks
+from .commands import service, health, keys, usage, workers, tasks, test
 
 app = typer.Typer(
     name="claude-api",
@@ -26,6 +26,7 @@ app.add_typer(keys.app, name="keys")
 app.add_typer(usage.app, name="usage")
 app.add_typer(workers.app, name="workers")
 app.add_typer(tasks.app, name="tasks")
+app.add_typer(test.app, name="test")
 
 
 @app.command()
@@ -61,6 +62,19 @@ def config_show():
 
     except Exception as e:
         print_error(f"Failed to load configuration: {str(e)}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def config_validate():
+    """Validate configuration and dependencies"""
+    try:
+        from .commands.health import deps
+        deps.callback()  # Run dependency check
+        print_success("Configuration validation complete")
+
+    except Exception as e:
+        print_error(f"Configuration validation failed: {str(e)}")
         raise typer.Exit(1)
 
 
