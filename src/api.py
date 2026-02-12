@@ -518,28 +518,32 @@ async def process_ai_services_compatible(
 
     # Check budget
     estimated_tokens = len(prompt.split()) * 2  # Rough estimate
-    if not budget_manager.check_budget(request.project_id, estimated_tokens):
+    if not await budget_manager.check_budget(request.project_id, estimated_tokens):
         raise HTTPException(
             403,
             f"Budget exceeded for project {request.project_id}"
         )
 
-    # Submit to worker pool
+    # Submit to worker pool - Claude CLI needs 10-30s minimum
+    timeout = max(30, (request.max_tokens or 1000) / 10)
     task_id = worker_pool.submit(
         prompt=prompt,
         model=claude_model,
-        project_id=request.project_id
+        project_id=request.project_id,
+        timeout=timeout
     )
+    result = worker_pool.get_result(task_id, timeout=timeout)
 
-    # Wait for result
-    try:
-        result = worker_pool.get_result(task_id, timeout=request.max_tokens / 10 or 30)
-    except TimeoutError:
-        raise HTTPException(504, "Request timeout")
+    # Check for non-success status
+    if result.status != TaskStatus.COMPLETED:
+        raise HTTPException(
+            504 if result.status == TaskStatus.TIMEOUT else 500,
+            f"Task {result.status.value}: {result.error or 'Unknown error'}"
+        )
 
     # Track usage
     if result.usage:
-        budget_manager.track_usage(
+        await budget_manager.track_usage(
             request.project_id,
             claude_model,
             result.usage["total_tokens"],
