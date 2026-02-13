@@ -128,7 +128,8 @@ def client(test_app):
 @pytest.fixture
 def mock_executor():
     """Mock AgenticExecutor for testing without actual execution."""
-    with patch("src.api.AgenticExecutor") as mock:
+    with patch("src.api.AgenticExecutor") as mock_api, \
+         patch("src.websocket.AgenticExecutor") as mock_ws:
         executor = Mock()
         executor.execute_task = AsyncMock(return_value=AgenticTaskResponse(
             task_id="test-task-123",
@@ -151,5 +152,6 @@ def mock_executor():
                 "total_cost": 0.00045
             }
         ))
-        mock.return_value = executor
+        mock_api.return_value = executor
+        mock_ws.return_value = executor
         yield executor

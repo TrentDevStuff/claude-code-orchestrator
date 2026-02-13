@@ -65,10 +65,14 @@ def mock_budget_manager():
 @pytest.fixture
 def executor(mock_worker_pool, mock_budget_manager):
     """AgenticExecutor instance with mocked dependencies."""
-    return AgenticExecutor(
+    exec_instance = AgenticExecutor(
         worker_pool=mock_worker_pool,
         budget_manager=mock_budget_manager
     )
+    # Stub out agent/skill discovery so tests don't fail on missing names
+    exec_instance.agent_discovery.validate_agents = lambda names: {n: True for n in names}
+    exec_instance.agent_discovery.validate_skills = lambda names: {n: True for n in names}
+    return exec_instance
 
 
 @pytest.mark.asyncio

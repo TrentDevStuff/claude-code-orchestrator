@@ -60,7 +60,7 @@ class SandboxManager:
             self.docker_client.images.get(self.SANDBOX_IMAGE)
         except docker.errors.ImageNotFound:
             # Build the image from Dockerfile
-            dockerfile_path = Path(__file__).parent.parent / "docker"
+            dockerfile_path = Path(__file__).parent.parent / "docker-build"
             try:
                 print(f"Building sandbox image from {dockerfile_path}...")
                 self.docker_client.images.build(

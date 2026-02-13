@@ -81,7 +81,7 @@ def test_task_execution_success(mock_popen, worker_pool):
     mock_process.pid = 12345
     mock_process.communicate.return_value = (
         json.dumps({
-            "content": [{"text": "Test response"}],
+            "result": "Test response",
             "usage": {
                 "input_tokens": 100,
                 "output_tokens": 50
@@ -291,7 +291,7 @@ def test_worker_cleanup(mock_popen, worker_pool):
     mock_process.pid = 12345
     mock_process.communicate.return_value = (
         json.dumps({
-            "content": [{"text": "Response"}],
+            "result": "Response",
             "usage": {"input_tokens": 10, "output_tokens": 5}
         }),
         ""
