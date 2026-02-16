@@ -25,6 +25,7 @@ app = typer.Typer(help="Service lifecycle management")
 console = Console()
 
 PID_FILE = Path.home() / ".claude-api" / "service.pid"
+LOG_FILE = Path.home() / ".claude-api" / "service.log"
 
 
 def get_service_pid() -> Optional[int]:
@@ -137,38 +138,58 @@ def start(
 
         cmd = ["python", str(service_dir / "main.py")]
         env = os.environ.copy()
-        env["PORT"] = str(service_port)
+        env["CLAUDE_API_PORT"] = str(service_port)
 
         if background:
-            # Start in background
+            # Redirect stderr (structured JSON logs) to log file
+            LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+            log_fh = open(LOG_FILE, "a")
+
             process = subprocess.Popen(
                 cmd,
                 cwd=service_dir,
                 env=env,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=log_fh,
                 start_new_session=True
             )
 
-            # Wait a moment for startup
-            time.sleep(2)
+            # Poll /ready for up to 5 seconds
+            from ..api_client import APIClient as _AC
+            ready_client = _AC(base_url=f"http://localhost:{service_port}")
+            ready = False
+            for _ in range(10):
+                time.sleep(0.5)
+                if process.poll() is not None:
+                    break
+                try:
+                    data = ready_client.get_ready()
+                    if data.get("ready"):
+                        ready = True
+                        break
+                except Exception:
+                    continue
 
-            # Check if it started
-            if process.poll() is None:
-                save_service_pid(process.pid)
-                print_success(f"Service started (PID: {process.pid})")
-                print_success(f"Service URL: http://localhost:{service_port}")
-                print_success(f"API Docs: http://localhost:{service_port}/docs")
-
-                if logs:
-                    print_info("Tailing logs... (Ctrl+C to stop)")
-                    _tail_logs(follow=True)
-            else:
-                print_error("Service failed to start")
+            if process.poll() is not None:
+                print_error("Service failed to start (check logs: claude-api service logs)")
                 raise typer.Exit(1)
 
+            save_service_pid(process.pid)
+            if ready:
+                print_success(f"Service ready (PID: {process.pid})")
+            else:
+                print_warning(f"Service started but not yet ready (PID: {process.pid})")
+            print_success(f"Service URL: http://localhost:{service_port}")
+            print_success(f"API Docs: http://localhost:{service_port}/docs")
+            print_info(f"Logs: {LOG_FILE}")
+
+            if logs:
+                print_info("Tailing logs... (Ctrl+C to stop)")
+                _tail_logs(follow=True)
+
         else:
-            # Run in foreground
+            # Foreground: human-readable logs
+            env["CLAUDE_API_LOG_JSON"] = "false"
             print_info("Service running in foreground (Ctrl+C to stop)")
             try:
                 subprocess.run(cmd, cwd=service_dir, env=env)
@@ -272,13 +293,20 @@ def status(
 
         # Get process info
         process = psutil.Process(pid)
-        uptime = time.time() - process.create_time()
 
         # Get service health
         try:
             health = client.get_health()
-        except:
+        except Exception:
             health = None
+
+        # Prefer server-reported uptime, fall back to OS process time
+        if health and health.get("uptime_seconds") is not None:
+            uptime = health["uptime_seconds"]
+        else:
+            uptime = time.time() - process.create_time()
+
+        overall_status = health.get("status", "unknown") if health else "unreachable"
 
         # Build status table
         items = [
@@ -290,64 +318,126 @@ def status(
             ("CPU", f"{process.cpu_percent(interval=0.1):.1f}%"),
         ]
 
-        if health:
+        if overall_status == "ok":
             items.append(("Health", "✓ OK"))
+        elif overall_status == "degraded":
+            items.append(("Health", "⚠ Degraded"))
         else:
-            items.append(("Health", "✗ Not responding"))
+            items.append(("Health", f"✗ {overall_status.title()}"))
 
         table = create_status_table("Service Status", items)
         console.print(table)
 
-        # Dependencies
-        print()
-        dep_items = []
+        # Show per-service status from /health
+        if health:
+            services = health.get("services", {})
+            print()
+            svc_items = []
+            for svc_name, svc_data in services.items():
+                svc_status = svc_data.get("status", "unknown")
+                label = svc_name.replace("_", " ").title()
+                if svc_status == "ok":
+                    svc_items.append((label, "✓ OK"))
+                elif svc_status == "unavailable":
+                    svc_items.append((label, "✗ Unavailable"))
+                else:
+                    svc_items.append((label, f"⚠ {svc_status}"))
 
-        # Check Redis
-        try:
-            import redis
-            r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=1)
-            r.ping()
-            dep_items.append(("Redis", "✓ Running (port 6379)"))
-        except:
-            dep_items.append(("Redis", "✗ Not running"))
+            svc_table = create_status_table("Services", svc_items)
+            console.print(svc_table)
 
-        # Check agents/skills
-        agents_dir = Path.home() / ".claude" / "agents"
-        skills_dir = Path.home() / ".claude" / "skills"
+            # Worker pool detail
+            wp = services.get("worker_pool", {})
+            wp_detail = wp.get("detail", {})
+            if wp_detail:
+                print()
+                wp_items = [
+                    ("Active Workers", f"{wp_detail.get('active_workers', '?')} / {wp_detail.get('max_workers', '?')}"),
+                    ("Queued Tasks", str(wp_detail.get("queued_tasks", "?"))),
+                ]
+                wp_table = create_status_table("Worker Pool", wp_items)
+                console.print(wp_table)
 
-        if agents_dir.exists():
-            agent_count = len(list(agents_dir.glob("*.md")))
-            dep_items.append(("Agents", f"✓ {agent_count} discovered"))
-        else:
-            dep_items.append(("Agents", "✗ Directory not found"))
-
-        if skills_dir.exists():
-            skill_count = len(list(skills_dir.glob("*/skill.json")))
-            dep_items.append(("Skills", f"✓ {skill_count} discovered"))
-        else:
-            dep_items.append(("Skills", "✗ Directory not found"))
-
-        dep_table = create_status_table("Dependencies", dep_items)
-        console.print(dep_table)
-
+    except typer.Exit:
+        raise
     except Exception as e:
         print_error(f"Failed to get status: {str(e)}")
         raise typer.Exit(1)
 
 
 def _tail_logs(lines: int = 50, follow: bool = False, level: Optional[str] = None, search: Optional[str] = None):
-    """Internal log tailing function"""
-    # For now, just tail the output
-    # In future, could tail from log files
-    print_warning("Log tailing from files not yet implemented")
-    print_info("Run service in foreground to see logs: claude-api service start")
+    """Read structured JSON logs from the service log file"""
+    import json as _json
+
+    if not LOG_FILE.exists():
+        print_warning(f"No log file found at {LOG_FILE}")
+        print_info("Start in background mode to generate logs: claude-api service start -b")
+        return
+
+    if follow:
+        # Use tail -f subprocess
+        cmd = ["tail", "-f", str(LOG_FILE)]
+        if not level and not search:
+            try:
+                subprocess.run(cmd)
+            except KeyboardInterrupt:
+                pass
+            return
+
+        # With filtering, read line by line
+        cmd = ["tail", "-f", "-n", str(lines), str(LOG_FILE)]
+        try:
+            proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, text=True)
+            for raw_line in proc.stdout:
+                if _matches_filter(raw_line, level, search):
+                    console.print(raw_line.rstrip())
+        except KeyboardInterrupt:
+            proc.terminate()
+        return
+
+    # Non-follow: read last N lines
+    try:
+        all_lines = LOG_FILE.read_text().splitlines()
+    except Exception as e:
+        print_error(f"Failed to read log file: {e}")
+        return
+
+    tail = all_lines[-lines:] if len(all_lines) > lines else all_lines
+
+    for raw_line in tail:
+        if _matches_filter(raw_line, level, search):
+            console.print(raw_line)
+
+
+def _matches_filter(raw_line: str, level: Optional[str], search: Optional[str]) -> bool:
+    """Check if a log line matches level/search filters"""
+    import json as _json
+
+    if not level and not search:
+        return True
+
+    # Try to parse as JSON for level filtering
+    if level:
+        try:
+            entry = _json.loads(raw_line)
+            if entry.get("level", "").upper() != level.upper():
+                return False
+        except (ValueError, KeyError):
+            # Not JSON — match on raw text
+            if level.upper() not in raw_line.upper():
+                return False
+
+    if search and search.lower() not in raw_line.lower():
+        return False
+
+    return True
 
 
 @app.command()
 def logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs (tail -f style)"),
-    level: Optional[str] = typer.Option(None, help="Filter by level (DEBUG, INFO, WARNING, ERROR)"),
+    level: Optional[str] = typer.Option(None, "--level", help="Filter by level (DEBUG, INFO, WARNING, ERROR)"),
     search: Optional[str] = typer.Option(None, help="Search for pattern"),
 ):
     """Tail service logs"""

@@ -83,6 +83,15 @@ class APIClient:
         """Get service health"""
         return self.get("/health")
 
+    def get_ready(self) -> Dict[str, Any]:
+        """Get service readiness status"""
+        url = f"{self.base_url}/ready"
+        try:
+            response = self.session.get(url, timeout=3)
+            return response.json()
+        except Exception as e:
+            self._handle_error(e, "/ready")
+
     def get_capabilities(self) -> Dict[str, Any]:
         """Get agent/skill capabilities"""
         return self.get("/v1/capabilities")

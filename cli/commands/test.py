@@ -269,7 +269,22 @@ def all(
             results["failed"] += 1
             results["tests"].append(("GET /health", False, str(e)))
 
-        # Test 2: Capabilities
+        # Test 2: Ready
+        try:
+            ready_data = client.get_ready()
+            if ready_data.get("ready"):
+                print_success("GET /ready")
+            else:
+                reason = ready_data.get("reason", "unknown")
+                print_warning(f"GET /ready - not ready: {reason}")
+            results["passed"] += 1
+            results["tests"].append(("GET /ready", True, None))
+        except Exception as e:
+            print_error(f"GET /ready - {str(e)}")
+            results["failed"] += 1
+            results["tests"].append(("GET /ready", False, str(e)))
+
+        # Test 3: Capabilities
         try:
             client.get_capabilities()
             print_success("GET /v1/capabilities")
@@ -280,7 +295,7 @@ def all(
             results["failed"] += 1
             results["tests"].append(("GET /v1/capabilities", False, str(e)))
 
-        # Test 3: Chat completion
+        # Test 4: Chat completion
         try:
             client.chat_completion("haiku", [{"role": "user", "content": "Test"}])
             print_success("POST /v1/chat/completions")
