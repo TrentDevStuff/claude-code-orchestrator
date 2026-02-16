@@ -5,11 +5,10 @@ from rich.console import Console
 
 from ..api_client import APIClient, APIError
 from ..utils import (
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
     create_status_table,
+    print_error,
+    print_info,
+    print_warning,
 )
 
 app = typer.Typer(help="Worker pool management")
@@ -32,6 +31,7 @@ def status(
 
         if json_output:
             import json
+
             console.print(json.dumps({"status": worker_status, **detail}, indent=2))
             return
 

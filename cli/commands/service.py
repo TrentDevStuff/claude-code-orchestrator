@@ -1,24 +1,24 @@
 """Service lifecycle management commands"""
 
-import typer
-import subprocess
+from __future__ import annotations
+
 import os
-import signal
+import subprocess
 import time
-import psutil
 from pathlib import Path
-from typing import Optional
+
+import psutil
+import typer
 from rich.console import Console
 
 from ..config import config_manager
 from ..utils import (
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
-    print_section,
-    format_duration,
     create_status_table,
+    format_duration,
+    print_error,
+    print_info,
+    print_success,
+    print_warning,
 )
 
 app = typer.Typer(help="Service lifecycle management")
@@ -28,7 +28,7 @@ PID_FILE = Path.home() / ".claude-api" / "service.pid"
 LOG_FILE = Path.home() / ".claude-api" / "service.log"
 
 
-def get_service_pid() -> Optional[int]:
+def get_service_pid() -> int | None:
     """Get running service PID from file"""
     if not PID_FILE.exists():
         return None
@@ -42,7 +42,7 @@ def get_service_pid() -> Optional[int]:
             # Clean up stale PID file
             PID_FILE.unlink()
             return None
-    except:
+    except Exception:
         return None
 
 
@@ -60,7 +60,7 @@ def remove_service_pid():
 
 @app.command()
 def start(
-    port: Optional[int] = typer.Option(None, help="Override port"),
+    port: int | None = typer.Option(None, help="Override port"),
     background: bool = typer.Option(False, "--background", "-b", help="Run in background"),
     no_deps_check: bool = typer.Option(False, help="Skip dependency checks"),
     logs: bool = typer.Option(False, "--logs", "-l", help="Tail logs after starting"),
@@ -86,23 +86,22 @@ def start(
             # Check Redis
             try:
                 import redis
-                r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=2)
+
+                r = redis.Redis(host="localhost", port=6379, socket_connect_timeout=2)
                 r.ping()
                 print_success("Redis: running")
-            except:
+            except Exception:
                 print_warning("Redis: not running (optional for basic usage)")
 
             # Check Claude CLI
             try:
-                subprocess.run(
-                    ["claude", "--version"],
-                    capture_output=True,
-                    check=True,
-                    timeout=5
-                )
+                subprocess.run(["claude", "--version"], capture_output=True, check=True, timeout=5)
                 print_success("Claude CLI: installed")
-            except:
-                print_error("Claude CLI: not found", "Install from: https://docs.anthropic.com/en/docs/claude-code")
+            except Exception:
+                print_error(
+                    "Claude CLI: not found",
+                    "Install from: https://docs.anthropic.com/en/docs/claude-code",
+                )
                 raise typer.Exit(1)
 
             # Check agents/skills
@@ -123,8 +122,9 @@ def start(
 
         # Check port availability
         import socket
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        result = sock.connect_ex(('localhost', service_port))
+        result = sock.connect_ex(("localhost", service_port))
         sock.close()
 
         if result == 0:
@@ -151,11 +151,12 @@ def start(
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=log_fh,
-                start_new_session=True
+                start_new_session=True,
             )
 
             # Poll /ready for up to 5 seconds
             from ..api_client import APIClient as _AC
+
             ready_client = _AC(base_url=f"http://localhost:{service_port}")
             ready = False
             for _ in range(10):
@@ -204,7 +205,9 @@ def start(
 
 @app.command()
 def stop(
-    force: bool = typer.Option(False, "--force", "-f", help="Force kill if graceful shutdown fails"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Force kill if graceful shutdown fails"
+    ),
     timeout: int = typer.Option(30, help="Shutdown timeout in seconds"),
 ):
     """Stop the running service"""
@@ -240,10 +243,7 @@ def stop(
                 print_success("Service force-killed")
                 remove_service_pid()
             else:
-                print_error(
-                    "Graceful shutdown timed out",
-                    "Use --force to force kill"
-                )
+                print_error("Graceful shutdown timed out", "Use --force to force kill")
                 raise typer.Exit(1)
 
         except psutil.NoSuchProcess:
@@ -257,7 +257,7 @@ def stop(
 
 @app.command()
 def restart(
-    port: Optional[int] = typer.Option(None, help="Override port"),
+    port: int | None = typer.Option(None, help="Override port"),
 ):
     """Restart the service"""
     print_info("Restarting service...")
@@ -352,7 +352,10 @@ def status(
             if wp_detail:
                 print()
                 wp_items = [
-                    ("Active Workers", f"{wp_detail.get('active_workers', '?')} / {wp_detail.get('max_workers', '?')}"),
+                    (
+                        "Active Workers",
+                        f"{wp_detail.get('active_workers', '?')} / {wp_detail.get('max_workers', '?')}",
+                    ),
                     ("Queued Tasks", str(wp_detail.get("queued_tasks", "?"))),
                 ]
                 wp_table = create_status_table("Worker Pool", wp_items)
@@ -365,9 +368,10 @@ def status(
         raise typer.Exit(1)
 
 
-def _tail_logs(lines: int = 50, follow: bool = False, level: Optional[str] = None, search: Optional[str] = None):
+def _tail_logs(
+    lines: int = 50, follow: bool = False, level: str | None = None, search: str | None = None
+):
     """Read structured JSON logs from the service log file"""
-    import json as _json
 
     if not LOG_FILE.exists():
         print_warning(f"No log file found at {LOG_FILE}")
@@ -409,7 +413,7 @@ def _tail_logs(lines: int = 50, follow: bool = False, level: Optional[str] = Non
             console.print(raw_line)
 
 
-def _matches_filter(raw_line: str, level: Optional[str], search: Optional[str]) -> bool:
+def _matches_filter(raw_line: str, level: str | None, search: str | None) -> bool:
     """Check if a log line matches level/search filters"""
     import json as _json
 
@@ -427,18 +431,17 @@ def _matches_filter(raw_line: str, level: Optional[str], search: Optional[str]) 
             if level.upper() not in raw_line.upper():
                 return False
 
-    if search and search.lower() not in raw_line.lower():
-        return False
-
-    return True
+    return not (search and search.lower() not in raw_line.lower())
 
 
 @app.command()
 def logs(
     lines: int = typer.Option(50, "--lines", "-n", help="Number of lines to show"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs (tail -f style)"),
-    level: Optional[str] = typer.Option(None, "--level", help="Filter by level (DEBUG, INFO, WARNING, ERROR)"),
-    search: Optional[str] = typer.Option(None, help="Search for pattern"),
+    level: str | None = typer.Option(
+        None, "--level", help="Filter by level (DEBUG, INFO, WARNING, ERROR)"
+    ),
+    search: str | None = typer.Option(None, help="Search for pattern"),
 ):
     """Tail service logs"""
     _tail_logs(lines=lines, follow=follow, level=level, search=search)

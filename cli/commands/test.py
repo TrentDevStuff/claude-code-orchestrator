@@ -6,14 +6,12 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 
 from ..api_client import APIClient, APIError
 from ..utils import (
-    print_success,
-    print_error,
-    print_warning,
-    print_info,
-    print_section,
-    format_duration,
     format_cost,
-    format_tokens,
+    format_duration,
+    print_error,
+    print_section,
+    print_success,
+    print_warning,
 )
 
 app = typer.Typer(help="Testing commands")
@@ -32,9 +30,9 @@ def completion(
         client = APIClient(api_key=key) if key else APIClient()
 
         print_section("Testing Chat Completion Endpoint")
-        console.print(f"  POST /v1/chat/completions")
+        console.print("  POST /v1/chat/completions")
         console.print(f"  Model: {model}")
-        console.print(f"  Prompt: \"{prompt}\"")
+        console.print(f'  Prompt: "{prompt}"')
         print()
 
         with Progress(
@@ -45,12 +43,12 @@ def completion(
             task = progress.add_task("Sending request...", total=None)
 
             import time
+
             start = time.time()
 
             try:
                 response = client.chat_completion(
-                    model=model,
-                    messages=[{"role": "user", "content": prompt}]
+                    model=model, messages=[{"role": "user", "content": prompt}]
                 )
                 duration = time.time() - start
 
@@ -62,15 +60,19 @@ def completion(
                 raise typer.Exit(1)
 
         print_success(f"Response received ({duration:.1f}s)")
-        print_success(f"Status: 200 OK")
+        print_success("Status: 200 OK")
 
-        content = response.get('content', response.get('choices', [{}])[0].get('message', {}).get('content', 'N/A'))
+        content = response.get(
+            "content", response.get("choices", [{}])[0].get("message", {}).get("content", "N/A")
+        )
         console.print(f"✓ Content: \"{content[:100]}{'...' if len(str(content)) > 100 else ''}\"")
 
-        usage = response.get('usage', {})
+        usage = response.get("usage", {})
         if usage:
-            console.print(f"✓ Tokens: {usage.get('input_tokens', 0)} input, {usage.get('output_tokens', 0)} output")
-            if 'cost' in usage:
+            console.print(
+                f"✓ Tokens: {usage.get('input_tokens', 0)} input, {usage.get('output_tokens', 0)} output"
+            )
+            if "cost" in usage:
                 console.print(f"✓ Cost: {format_cost(usage['cost'])}")
 
     except Exception as e:
@@ -92,8 +94,8 @@ def task(
         tool_list = [t.strip() for t in tools.split(",")]
 
         print_section("Testing Agentic Task Endpoint")
-        console.print(f"  POST /v1/task")
-        console.print(f"  Description: \"{description}\"")
+        console.print("  POST /v1/task")
+        console.print(f'  Description: "{description}"')
         console.print(f"  Tools: {tool_list}")
         print()
 
@@ -105,15 +107,14 @@ def task(
             task_progress = progress.add_task("Creating task...", total=None)
 
             import time
+
             start = time.time()
 
             try:
                 response = client.create_task(
-                    description=description,
-                    allow_tools=tool_list,
-                    timeout=90
+                    description=description, allow_tools=tool_list, timeout=90
                 )
-                duration = time.time() - start
+                time.time() - start  # elapsed, used for future display
 
                 progress.update(task_progress, description="Task completed", completed=True)
 
@@ -122,18 +123,18 @@ def task(
                 print_error(f"Task failed: {str(e)}")
                 raise typer.Exit(1)
 
-        task_id = response.get('task_id', 'N/A')
-        status = response.get('status', 'N/A')
+        task_id = response.get("task_id", "N/A")
+        status = response.get("status", "N/A")
 
         print_success(f"Task created (task_id: {task_id[:16]}...)")
         print_success(f"Status: {status}")
 
         if status == "completed":
-            result = response.get('result', {})
-            summary = result.get('summary', 'N/A')
+            result = response.get("result", {})
+            summary = result.get("summary", "N/A")
             console.print(f"✓ Result: {summary[:100]}{'...' if len(str(summary)) > 100 else ''}")
 
-            usage = response.get('usage', {})
+            usage = response.get("usage", {})
             if usage:
                 console.print(f"✓ Duration: {format_duration(usage.get('duration_seconds', 0))}")
                 console.print(f"✓ Cost: {format_cost(usage.get('total_cost', 0))}")
@@ -153,7 +154,7 @@ def agents(
         client = APIClient(api_key=key) if key else APIClient()
 
         print_section("Testing Agent Discovery")
-        console.print(f"  GET /v1/capabilities")
+        console.print("  GET /v1/capabilities")
         print()
 
         with Progress(
@@ -172,7 +173,7 @@ def agents(
                 print_error(f"Request failed: {str(e)}")
                 raise typer.Exit(1)
 
-        agents = response.get('agents', [])
+        agents = response.get("agents", [])
         agent_count = len(agents)
 
         print_success(f"Found {agent_count} agents")
@@ -180,8 +181,8 @@ def agents(
         if agents:
             console.print("\nSample agents:")
             for agent in agents[:5]:
-                name = agent.get('name', 'unknown')
-                model = agent.get('model', 'unknown')
+                name = agent.get("name", "unknown")
+                model = agent.get("model", "unknown")
                 console.print(f"  • {name} ({model})", style="cyan")
 
         print()
@@ -202,7 +203,7 @@ def skills(
         client = APIClient(api_key=key) if key else APIClient()
 
         print_section("Testing Skill Discovery")
-        console.print(f"  GET /v1/capabilities")
+        console.print("  GET /v1/capabilities")
         print()
 
         with Progress(
@@ -221,7 +222,7 @@ def skills(
                 print_error(f"Request failed: {str(e)}")
                 raise typer.Exit(1)
 
-        skills = response.get('skills', [])
+        skills = response.get("skills", [])
         skill_count = len(skills)
 
         print_success(f"Found {skill_count} skills")
@@ -229,7 +230,7 @@ def skills(
         if skills:
             console.print("\nSample skills:")
             for skill in skills[:5]:
-                name = skill.get('name', 'unknown')
+                name = skill.get("name", "unknown")
                 console.print(f"  • {name}", style="cyan")
 
         print()
@@ -249,11 +250,7 @@ def all(
     try:
         client = APIClient(api_key=key) if key else APIClient()
 
-        results = {
-            "passed": 0,
-            "failed": 0,
-            "tests": []
-        }
+        results = {"passed": 0, "failed": 0, "tests": []}
 
         print_section("Running All Endpoint Tests")
         print()

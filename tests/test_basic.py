@@ -1,9 +1,11 @@
 """Basic tests for API endpoints"""
-import pytest
+
 from fastapi.testclient import TestClient
+
 from main import app
 
 client = TestClient(app)
+
 
 def test_root():
     """Test root endpoint"""
@@ -15,6 +17,7 @@ def test_root():
     assert "docs" in data
     assert "health" in data
 
+
 def test_health():
     """Test health check endpoint"""
     response = client.get("/health")
@@ -24,10 +27,12 @@ def test_health():
     assert data["version"] == "0.1.0"
     assert "services" in data
 
+
 def test_docs_available():
     """Test that OpenAPI docs are available"""
     response = client.get("/docs")
     assert response.status_code == 200
+
 
 def test_openapi_schema():
     """Test that OpenAPI schema is available"""

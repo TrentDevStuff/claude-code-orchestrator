@@ -7,11 +7,15 @@ Provides:
 - Graceful connection error handling
 """
 
+from __future__ import annotations
+
 import json
 import logging
-from typing import Optional, Dict, Any
+from typing import Any
+
 import redis
-from redis.exceptions import RedisError, ConnectionError as RedisConnectionError
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import RedisError
 
 logger = logging.getLogger(__name__)
 
@@ -32,10 +36,10 @@ class RedisCache:
         host: str = "localhost",
         port: int = 6379,
         db: int = 0,
-        password: Optional[str] = None,
+        password: str | None = None,
         decode_responses: bool = True,
         socket_timeout: float = 5.0,
-        socket_connect_timeout: float = 5.0
+        socket_connect_timeout: float = 5.0,
     ):
         """
         Initialize Redis connection.
@@ -62,7 +66,7 @@ class RedisCache:
                 password=password,
                 decode_responses=decode_responses,
                 socket_timeout=socket_timeout,
-                socket_connect_timeout=socket_connect_timeout
+                socket_connect_timeout=socket_connect_timeout,
             )
 
             # Test connection
@@ -88,12 +92,7 @@ class RedisCache:
             self._connected = False
             return False
 
-    def cache_response(
-        self,
-        prompt_hash: str,
-        response: Dict[str, Any],
-        ttl: int = 3600
-    ) -> bool:
+    def cache_response(self, prompt_hash: str, response: dict[str, Any], ttl: int = 3600) -> bool:
         """
         Cache a response with TTL.
 
@@ -122,7 +121,7 @@ class RedisCache:
             logger.error(f"Failed to cache response: {e}")
             return False
 
-    def get_cached_response(self, prompt_hash: str) -> Optional[Dict[str, Any]]:
+    def get_cached_response(self, prompt_hash: str) -> dict[str, Any] | None:
         """
         Retrieve a cached response.
 
@@ -152,7 +151,7 @@ class RedisCache:
             logger.error(f"Failed to retrieve cached response: {e}")
             return None
 
-    def queue_request(self, request_data: Dict[str, Any]) -> bool:
+    def queue_request(self, request_data: dict[str, Any]) -> bool:
         """
         Add a request to the queue.
 
@@ -179,7 +178,7 @@ class RedisCache:
             logger.error(f"Failed to queue request: {e}")
             return False
 
-    def dequeue_request(self) -> Optional[Dict[str, Any]]:
+    def dequeue_request(self) -> dict[str, Any] | None:
         """
         Remove and return the next request from the queue.
 

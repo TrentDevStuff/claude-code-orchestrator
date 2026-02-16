@@ -1,16 +1,17 @@
 """Health check commands"""
 
-import typer
 from pathlib import Path
+
+import typer
 from rich.console import Console
 
 from ..api_client import APIClient, APIError
-from ..config import config_manager
 from ..utils import (
-    print_success,
+    create_status_table,
     print_error,
     print_info,
-    create_status_table,
+    print_success,
+    print_warning,
 )
 
 app = typer.Typer(help="Health checks")
@@ -37,12 +38,13 @@ def check(
 
         if json_output:
             import json
+
             console.print(json.dumps(health_data, indent=2))
             return
 
         # Overall status
         if overall_status == "ok":
-            print_success(f"Overall: Healthy")
+            print_success("Overall: Healthy")
         else:
             print_warning(f"Overall: {overall_status.title()}")
 
@@ -50,6 +52,7 @@ def check(
         uptime = health_data.get("uptime_seconds")
         if uptime is not None:
             from ..utils import format_duration
+
             print_info(f"Uptime: {format_duration(uptime)} (v{health_data.get('version', '?')})")
 
         print()
@@ -115,10 +118,11 @@ def deps():
         print_info("Checking Redis...")
         try:
             import redis
-            r = redis.Redis(host='localhost', port=6379, socket_connect_timeout=2)
+
+            r = redis.Redis(host="localhost", port=6379, socket_connect_timeout=2)
             r.ping()
             info = r.info()
-            mem_used = info.get('used_memory_human', 'unknown')
+            mem_used = info.get("used_memory_human", "unknown")
 
             deps_status.append(("Status", "✓ Running"))
             deps_status.append(("Port", "6379"))
@@ -138,12 +142,9 @@ def deps():
         print_info("Checking Claude CLI...")
         try:
             import subprocess
+
             result = subprocess.run(
-                ["claude", "--version"],
-                capture_output=True,
-                check=True,
-                timeout=5,
-                text=True
+                ["claude", "--version"], capture_output=True, check=True, timeout=5, text=True
             )
             version = result.stdout.strip()
 
@@ -151,11 +152,7 @@ def deps():
             claude_status.append(("Version", version))
 
             # Find path
-            which_result = subprocess.run(
-                ["which", "claude"],
-                capture_output=True,
-                text=True
-            )
+            which_result = subprocess.run(["which", "claude"], capture_output=True, text=True)
             if which_result.returncode == 0:
                 claude_status.append(("Path", which_result.stdout.strip()))
 
@@ -197,7 +194,9 @@ def deps():
         skills_status.append(("Location", str(skills_dir)))
 
         if skills_dir.exists():
-            skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir() and (d / "skill.json").exists()]
+            skill_dirs = [
+                d for d in skills_dir.iterdir() if d.is_dir() and (d / "skill.json").exists()
+            ]
             skills_status.append(("Count", f"{len(skill_dirs)} discovered"))
 
             if skill_dirs:
@@ -216,7 +215,9 @@ def deps():
 
 @app.command()
 def ping(
-    ready: bool = typer.Option(False, "--ready", "-r", help="Use /ready endpoint instead of /health"),
+    ready: bool = typer.Option(
+        False, "--ready", "-r", help="Use /ready endpoint instead of /health"
+    ),
 ):
     """Quick ping (is service responding?)"""
 

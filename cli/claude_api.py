@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 """Claude Code API Service CLI - Main Entry Point"""
 
+
 import typer
-from typing import Optional
 from rich.console import Console
 
-from .config import config_manager
-from .utils import print_error, print_success, print_info
-
 # Import command groups
-from .commands import service, health, keys, usage, workers, tasks, test, discovery
+from .commands import discovery, health, keys, service, tasks, test, usage, workers
+from .config import config_manager
+from .utils import print_error, print_info, print_success
 
 app = typer.Typer(
     name="claude-api",
@@ -35,6 +34,7 @@ app.add_typer(discovery.skills_app, name="skills")
 def version():
     """Show CLI version"""
     from . import __version__
+
     print(f"claude-api version {__version__}")
 
 
@@ -72,6 +72,7 @@ def config_validate():
     """Validate configuration and dependencies"""
     try:
         from .commands.health import deps
+
         deps.callback()  # Run dependency check
         print_success("Configuration validation complete")
 

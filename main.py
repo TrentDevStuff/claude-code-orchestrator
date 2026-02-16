@@ -3,43 +3,46 @@ Claude Code API Service
 A flexible, reusable API service that wraps Claude Code CLI for rapid prototyping.
 """
 
+from __future__ import annotations
+
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from contextlib import asynccontextmanager
+from typing import Any
 
 import aiosqlite
+import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from contextlib import asynccontextmanager
-import uvicorn
 
-from src.settings import settings
-from src.logging_config import setup_logging
-from src.worker_pool import WorkerPool
-from src.budget_manager import BudgetManager
-from src.auth import AuthManager, initialize_auth
-from src.api import router as api_router, initialize_services
-from src.websocket import initialize_websocket, websocket_endpoint, _streamer
-from src.permission_manager import PermissionManager
+from src.api import initialize_services
+from src.api import router as api_router
 from src.audit_logger import AuditLogger
+from src.auth import AuthManager, initialize_auth
+from src.budget_manager import BudgetManager
 from src.cache import RedisCache
+from src.logging_config import setup_logging
 from src.middleware import RequestIDMiddleware
+from src.permission_manager import PermissionManager
+from src.settings import settings
+from src.websocket import _streamer, initialize_websocket, websocket_endpoint
+from src.worker_pool import WorkerPool
 
 # Configure logging early (before anything else logs)
 setup_logging(level=settings.log_level, json_format=settings.log_json)
 logger = logging.getLogger(__name__)
 
 # Global service instances
-worker_pool: Optional[WorkerPool] = None
-budget_manager: Optional[BudgetManager] = None
-auth_manager: Optional[AuthManager] = None
-permission_manager: Optional[PermissionManager] = None
-audit_logger: Optional[AuditLogger] = None
-cache: Optional[RedisCache] = None
+worker_pool: WorkerPool | None = None
+budget_manager: BudgetManager | None = None
+auth_manager: AuthManager | None = None
+permission_manager: PermissionManager | None = None
+audit_logger: AuditLogger | None = None
+cache: RedisCache | None = None
 
 # Lifecycle flags
-_start_time: Optional[float] = None
+_start_time: float | None = None
 _shutting_down: bool = False
 
 
@@ -89,7 +92,7 @@ async def lifespan(app: FastAPI):
 
     # 1. Close WebSocket connections
     if _streamer and _streamer.active_connections:
-        for conn_id, ws in list(_streamer.active_connections.items()):
+        for _conn_id, ws in list(_streamer.active_connections.items()):
             try:
                 await ws.close(code=1001, reason="Server shutting down")
             except Exception:
@@ -99,10 +102,13 @@ async def lifespan(app: FastAPI):
     # 2. Drain worker pool
     if worker_pool:
         completed, killed = worker_pool.drain(timeout=settings.shutdown_timeout)
-        logger.info("Worker pool drained", extra={
-            "service": "worker_pool",
-            "detail": f"completed={completed} killed={killed}",
-        })
+        logger.info(
+            "Worker pool drained",
+            extra={
+                "service": "worker_pool",
+                "detail": f"completed={completed} killed={killed}",
+            },
+        )
 
     # 3. Close Redis
     if cache:
@@ -140,26 +146,28 @@ app.include_router(api_router)
 # Health & Readiness Models
 # ============================================================================
 
+
 class ServiceHealth(BaseModel):
     status: str
-    detail: Optional[Dict[str, Any]] = None
+    detail: dict[str, Any] | None = None
 
 
 class HealthResponse(BaseModel):
     status: str
     version: str
-    uptime_seconds: Optional[float] = None
-    services: Dict[str, ServiceHealth]
+    uptime_seconds: float | None = None
+    services: dict[str, ServiceHealth]
 
 
 class ReadyResponse(BaseModel):
     ready: bool
-    reason: Optional[str] = None
+    reason: str | None = None
 
 
 # ============================================================================
 # Health & Readiness Endpoints
 # ============================================================================
+
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
@@ -167,7 +175,7 @@ async def health():
     Deep health check — reports real status of every subsystem.
     Returns 200 even when degraded so monitoring can parse the body.
     """
-    svc: Dict[str, ServiceHealth] = {}
+    svc: dict[str, ServiceHealth] = {}
 
     # Worker pool
     if worker_pool and worker_pool.running:
@@ -198,12 +206,8 @@ async def health():
         svc["audit_db"] = ServiceHealth(status="unavailable", detail={"error": str(exc)})
 
     # Budget / Auth managers
-    svc["budget_manager"] = ServiceHealth(
-        status="ok" if budget_manager else "unavailable"
-    )
-    svc["auth_manager"] = ServiceHealth(
-        status="ok" if auth_manager else "unavailable"
-    )
+    svc["budget_manager"] = ServiceHealth(status="ok" if budget_manager else "unavailable")
+    svc["auth_manager"] = ServiceHealth(status="ok" if auth_manager else "unavailable")
 
     overall = "ok" if all(s.status == "ok" for s in svc.values()) else "degraded"
     uptime = round(time.time() - _start_time, 1) if _start_time else None

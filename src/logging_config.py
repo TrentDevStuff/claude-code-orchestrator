@@ -23,8 +23,16 @@ class JSONFormatter(logging.Formatter):
         if record.exc_info and record.exc_info[0] is not None:
             log_data["exception"] = self.formatException(record.exc_info)
         # Merge extra fields added via logger.info("msg", extra={...})
-        for key in ("request_id", "method", "path", "status_code", "duration_ms",
-                     "max_workers", "service", "detail"):
+        for key in (
+            "request_id",
+            "method",
+            "path",
+            "status_code",
+            "duration_ms",
+            "max_workers",
+            "service",
+            "detail",
+        ):
             value = getattr(record, key, None)
             if value is not None:
                 log_data[key] = value

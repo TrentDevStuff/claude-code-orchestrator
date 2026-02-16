@@ -9,6 +9,8 @@ Manages a pool of Claude CLI subprocess workers with:
 - Thread-safe operations
 """
 
+from __future__ import annotations
+
 import json
 import shutil
 import subprocess
@@ -16,15 +18,15 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from queue import Queue, Empty
-from typing import Dict, Optional, Any
+from queue import Empty, Queue
 
 
 class TaskStatus(Enum):
     """Status of a submitted task."""
+
     PENDING = "pending"
     RUNNING = "running"
     COMPLETED = "completed"
@@ -36,26 +38,28 @@ class TaskStatus(Enum):
 @dataclass
 class TaskResult:
     """Result of a completed task."""
+
     task_id: str
     status: TaskStatus
-    completion: Optional[str] = None
-    usage: Optional[Dict[str, int]] = None
-    cost: Optional[float] = None
-    error: Optional[str] = None
+    completion: str | None = None
+    usage: dict[str, int] | None = None
+    cost: float | None = None
+    error: str | None = None
 
 
 @dataclass
 class Task:
     """Internal task representation."""
+
     task_id: str
     prompt: str
     model: str
     project_id: str
     status: TaskStatus = TaskStatus.PENDING
-    process: Optional[subprocess.Popen] = None
-    temp_dir: Optional[Path] = None
-    result: Optional[TaskResult] = None
-    start_time: Optional[float] = None
+    process: subprocess.Popen | None = None
+    temp_dir: Path | None = None
+    result: TaskResult | None = None
+    start_time: float | None = None
     timeout: float = 30.0
 
 
@@ -86,7 +90,7 @@ class WorkerPool:
             max_workers: Maximum number of concurrent Claude CLI processes
         """
         self.max_workers = max_workers
-        self.tasks: Dict[str, Task] = {}
+        self.tasks: dict[str, Task] = {}
         self.task_queue: Queue = Queue()
         self.active_workers = 0
         self.lock = threading.Lock()
@@ -132,8 +136,7 @@ class WorkerPool:
         while time.time() < deadline:
             with self.lock:
                 still_running = [
-                    t for t in self.tasks.values()
-                    if t.process and t.process.poll() is None
+                    t for t in self.tasks.values() if t.process and t.process.poll() is None
                 ]
             if not still_running:
                 break
@@ -158,8 +161,7 @@ class WorkerPool:
         while time.time() < term_deadline:
             with self.lock:
                 stragglers = [
-                    t for t in self.tasks.values()
-                    if t.process and t.process.poll() is None
+                    t for t in self.tasks.values() if t.process and t.process.poll() is None
                 ]
             if not stragglers:
                 break
@@ -178,7 +180,9 @@ class WorkerPool:
 
         return completed, killed
 
-    def submit(self, prompt: str, model: str = "sonnet", project_id: str = "default", timeout: float = 30.0) -> str:
+    def submit(
+        self, prompt: str, model: str = "sonnet", project_id: str = "default", timeout: float = 30.0
+    ) -> str:
         """
         Submit a task to the worker pool.
 
@@ -194,11 +198,7 @@ class WorkerPool:
         task_id = str(uuid.uuid4())
 
         task = Task(
-            task_id=task_id,
-            prompt=prompt,
-            model=model,
-            project_id=project_id,
-            timeout=timeout
+            task_id=task_id, prompt=prompt, model=model, project_id=project_id, timeout=timeout
         )
 
         with self.lock:
@@ -248,7 +248,7 @@ class WorkerPool:
             task.result = TaskResult(
                 task_id=task_id,
                 status=TaskStatus.TIMEOUT,
-                error=f"Task timed out after {timeout} seconds"
+                error=f"Task timed out after {timeout} seconds",
             )
 
         return task.result
@@ -273,9 +273,7 @@ class WorkerPool:
                 task.process.kill()
                 task.status = TaskStatus.KILLED
                 task.result = TaskResult(
-                    task_id=task_id,
-                    status=TaskStatus.KILLED,
-                    error="Task was killed by user"
+                    task_id=task_id, status=TaskStatus.KILLED, error="Task was killed by user"
                 )
                 self.active_workers -= 1
                 self._cleanup_task(task)
@@ -283,7 +281,7 @@ class WorkerPool:
 
         return False
 
-    def get_active_pids(self) -> Dict[str, int]:
+    def get_active_pids(self) -> dict[str, int]:
         """
         Get PIDs of all active worker processes.
 
@@ -326,7 +324,6 @@ class WorkerPool:
             # Create temp directory for this task
             task.temp_dir = Path(tempfile.mkdtemp(prefix=f"claude_task_{task_id[:8]}_"))
             prompt_file = task.temp_dir / "prompt.txt"
-            output_file = task.temp_dir / "output.json"
 
             # Write prompt to file
             prompt_file.write_text(task.prompt)
@@ -336,8 +333,8 @@ class WorkerPool:
             claude_path = shutil.which("claude") or "claude"
             cmd = (
                 f'{claude_path} -p "$(cat {prompt_file})" '
-                f'--model {task.model} '
-                f'--output-format json'
+                f"--model {task.model} "
+                f"--output-format json"
             )
 
             # Start process
@@ -348,7 +345,7 @@ class WorkerPool:
                     stderr=subprocess.PIPE,
                     shell=True,
                     text=True,
-                    executable='/bin/bash'  # Use bash for $(cat ...) substitution
+                    executable="/bin/bash",  # Use bash for $(cat ...) substitution
                 )
                 task.status = TaskStatus.RUNNING
                 task.start_time = time.time()
@@ -359,7 +356,7 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id,
                     status=TaskStatus.FAILED,
-                    error=f"Failed to start process: {str(e)}"
+                    error=f"Failed to start process: {str(e)}",
                 )
                 self._cleanup_task(task)
 
@@ -385,7 +382,7 @@ class WorkerPool:
                     task.result = TaskResult(
                         task_id=task_id,
                         status=TaskStatus.TIMEOUT,
-                        error=f"Task timed out after {task.timeout} seconds"
+                        error=f"Task timed out after {task.timeout} seconds",
                     )
                     self.active_workers -= 1
                     completed_tasks.append(task_id)
@@ -431,13 +428,15 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id,
                     status=TaskStatus.COMPLETED,
-                    completion=output.get("result", ""),  # Fixed: Claude CLI returns "result" not "content"
+                    completion=output.get(
+                        "result", ""
+                    ),  # Fixed: Claude CLI returns "result" not "content"
                     usage={
                         "input_tokens": input_tokens,
                         "output_tokens": output_tokens,
-                        "total_tokens": input_tokens + output_tokens
+                        "total_tokens": input_tokens + output_tokens,
                     },
-                    cost=cost
+                    cost=cost,
                 )
 
             except json.JSONDecodeError as e:
@@ -445,7 +444,7 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id,
                     status=TaskStatus.FAILED,
-                    error=f"Failed to parse JSON output: {str(e)}\nOutput: {stdout}"
+                    error=f"Failed to parse JSON output: {str(e)}\nOutput: {stdout}",
                 )
 
         else:
@@ -453,7 +452,7 @@ class WorkerPool:
             task.result = TaskResult(
                 task_id=task_id,
                 status=TaskStatus.FAILED,
-                error=f"Process exited with code {returncode}\nStderr: {stderr}"
+                error=f"Process exited with code {returncode}\nStderr: {stderr}",
             )
 
         self.active_workers -= 1
@@ -464,6 +463,7 @@ class WorkerPool:
         if task.temp_dir and task.temp_dir.exists():
             try:
                 import shutil
+
                 shutil.rmtree(task.temp_dir)
             except Exception:
                 pass  # Best effort cleanup

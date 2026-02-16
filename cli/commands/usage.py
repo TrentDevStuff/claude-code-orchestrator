@@ -1,19 +1,15 @@
 """Usage analytics commands"""
 
+from __future__ import annotations
+
 import typer
-from typing import Optional
 from rich.console import Console
 
 from ..api_client import APIClient
 from ..utils import (
-    print_success,
     print_error,
-    print_warning,
     print_info,
-    create_data_table,
-    format_cost,
-    format_tokens,
-    format_duration,
+    print_warning,
 )
 
 app = typer.Typer(help="Usage analytics")
@@ -36,11 +32,12 @@ def summary(
 
         if json_output:
             import json
+
             print(json.dumps(usage, indent=2, default=str))
             return
 
         # Display summary (placeholder - actual implementation would aggregate data)
-        print_warning(f"Usage summary endpoint not yet implemented in API")
+        print_warning("Usage summary endpoint not yet implemented in API")
         print_info("Using basic usage data...")
 
         print()
@@ -48,8 +45,8 @@ def summary(
         console.print("━" * 60)
 
         # Show basic info
-        console.print(f"\nNote: Full analytics coming in future API version")
-        console.print(f"Use 'claude-api usage by-project' for current data")
+        console.print("\nNote: Full analytics coming in future API version")
+        console.print("Use 'claude-api usage by-project' for current data")
 
     except Exception as e:
         print_error(f"Failed to get usage summary: {str(e)}")
@@ -63,7 +60,7 @@ def by_project(
     """Usage breakdown by project"""
 
     try:
-        client = APIClient()
+        APIClient()  # validate service is reachable
 
         # Get all keys and their projects
         print_info("Aggregating usage by project...")
@@ -110,7 +107,7 @@ def costs(
 @app.command()
 def export(
     format: str = typer.Option("csv", help="Export format (csv, json)"),
-    output_file: Optional[str] = typer.Option(None, "--output", "-o", help="Output file path"),
+    output_file: str | None = typer.Option(None, "--output", "-o", help="Output file path"),
 ):
     """Export usage data"""
 
