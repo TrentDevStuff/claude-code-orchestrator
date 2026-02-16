@@ -12,6 +12,7 @@ Manages a pool of Claude CLI subprocess workers with:
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -82,14 +83,16 @@ class WorkerPool:
         "opus": {"input": 15.00, "output": 75.00},
     }
 
-    def __init__(self, max_workers: int = 5):
+    def __init__(self, max_workers: int = 5, mcp_config: str = ""):
         """
         Initialize the worker pool.
 
         Args:
             max_workers: Maximum number of concurrent Claude CLI processes
+            mcp_config: Path to MCP server config JSON file (passed to claude --mcp-config)
         """
         self.max_workers = max_workers
+        self.mcp_config = mcp_config
         self.tasks: dict[str, Task] = {}
         self.task_queue: Queue = Queue()
         self.active_workers = 0
@@ -337,6 +340,16 @@ class WorkerPool:
                 f"--output-format json"
             )
 
+            # Append MCP config if configured
+            if self.mcp_config:
+                mcp_path = Path(self.mcp_config).resolve()
+                if mcp_path.exists():
+                    cmd += f" --mcp-config {mcp_path}"
+
+            # Build clean environment for subprocess
+            # Remove CLAUDECODE=1 which blocks nested Claude CLI sessions
+            env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
             # Start process
             try:
                 task.process = subprocess.Popen(
@@ -346,6 +359,7 @@ class WorkerPool:
                     shell=True,
                     text=True,
                     executable="/bin/bash",  # Use bash for $(cat ...) substitution
+                    env=env,
                 )
                 task.status = TaskStatus.RUNNING
                 task.start_time = time.time()

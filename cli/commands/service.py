@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import os
+import plistlib
+import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
@@ -26,6 +29,8 @@ console = Console()
 
 PID_FILE = Path.home() / ".claude-api" / "service.pid"
 LOG_FILE = Path.home() / ".claude-api" / "service.log"
+PLIST_LABEL = "com.claude-api.service"
+PLIST_FILE = Path.home() / "Library" / "LaunchAgents" / f"{PLIST_LABEL}.plist"
 
 
 def get_service_pid() -> int | None:
@@ -365,6 +370,113 @@ def status(
         raise
     except Exception as e:
         print_error(f"Failed to get status: {str(e)}")
+        raise typer.Exit(1)
+
+
+def _build_plist(service_dir: Path, port: int) -> dict:
+    """Build a launchd plist dict for the API service."""
+    python_path = shutil.which("python3") or shutil.which("python") or sys.executable
+    log_dir = Path.home() / ".claude-api"
+
+    return {
+        "Label": PLIST_LABEL,
+        "ProgramArguments": [python_path, str(service_dir / "main.py")],
+        "WorkingDirectory": str(service_dir),
+        "EnvironmentVariables": {
+            "CLAUDE_API_PORT": str(port),
+            "CLAUDE_API_LOG_JSON": "true",
+            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
+            "HOME": str(Path.home()),
+        },
+        "KeepAlive": {"SuccessfulExit": False},  # Restart on crash, not on clean exit
+        "StandardOutPath": str(log_dir / "launchd-stdout.log"),
+        "StandardErrorPath": str(log_dir / "service.log"),
+        "RunAtLoad": False,
+        "ThrottleInterval": 5,  # Wait 5s between restart attempts
+    }
+
+
+@app.command()
+def install(
+    port: int | None = typer.Option(None, help="Override port"),
+    start_now: bool = typer.Option(False, "--start", "-s", help="Load and start immediately"),
+):
+    """Install launchd service for auto-restart on crash (macOS)"""
+    try:
+        config = config_manager.load()
+        service_dir = config.service.directory
+        service_port = port or config.service.port
+
+        if not service_dir.exists() or not (service_dir / "main.py").exists():
+            print_error(f"Service directory not found: {service_dir}")
+            raise typer.Exit(1)
+
+        # Build plist
+        plist = _build_plist(service_dir, service_port)
+
+        # Ensure directories exist
+        PLIST_FILE.parent.mkdir(parents=True, exist_ok=True)
+        (Path.home() / ".claude-api").mkdir(parents=True, exist_ok=True)
+
+        # Unload existing if present
+        if PLIST_FILE.exists():
+            subprocess.run(
+                ["launchctl", "unload", str(PLIST_FILE)],
+                capture_output=True,
+            )
+
+        # Write plist
+        with open(PLIST_FILE, "wb") as f:
+            plistlib.dump(plist, f)
+
+        print_success(f"Plist installed: {PLIST_FILE}")
+        print_info(f"  Working directory: {service_dir}")
+        print_info(f"  Port: {service_port}")
+        print_info(f"  Logs: {plist['StandardErrorPath']}")
+        print_info("  Auto-restart: on crash (KeepAlive.SuccessfulExit = false)")
+
+        if start_now:
+            subprocess.run(["launchctl", "load", str(PLIST_FILE)], check=True)
+            print_success("Service loaded and starting via launchd")
+            print_info("Check status with: claude-api service status")
+        else:
+            print_info(
+                "Load with: launchctl load ~/Library/LaunchAgents/com.claude-api.service.plist"
+            )
+            print_info("Or re-run with: claude-api service install --start")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print_error(f"Failed to install service: {str(e)}")
+        raise typer.Exit(1)
+
+
+@app.command()
+def uninstall():
+    """Remove launchd service"""
+    try:
+        if not PLIST_FILE.exists():
+            print_warning("Launchd service not installed")
+            return
+
+        # Unload first
+        result = subprocess.run(
+            ["launchctl", "unload", str(PLIST_FILE)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            print_success("Service unloaded from launchd")
+        else:
+            print_info("Service was not loaded (already stopped)")
+
+        # Remove plist
+        PLIST_FILE.unlink()
+        print_success(f"Plist removed: {PLIST_FILE}")
+
+    except Exception as e:
+        print_error(f"Failed to uninstall service: {str(e)}")
         raise typer.Exit(1)
 
 

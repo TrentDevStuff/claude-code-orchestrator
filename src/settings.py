@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
     shutdown_timeout: int = 30
+    mcp_config: str = ""  # Path to MCP server config JSON (passed to claude --mcp-config)
 
     model_config = SettingsConfigDict(env_prefix="CLAUDE_API_")
 

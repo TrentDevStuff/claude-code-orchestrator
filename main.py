@@ -59,7 +59,7 @@ async def lifespan(app: FastAPI):
     _shutting_down = False
 
     # Startup: Initialize services
-    worker_pool = WorkerPool(max_workers=settings.max_workers)
+    worker_pool = WorkerPool(max_workers=settings.max_workers, mcp_config=settings.mcp_config)
     worker_pool.start()
 
     budget_manager = BudgetManager(db_path=settings.db_path)

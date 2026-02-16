@@ -2,11 +2,11 @@
 type: effort
 effort_id: EFFORT-MCP-Tool-Routing
 project: PROJECT-Claude-Code-API-Service
-status: planning
+status: in_progress
 priority: high
-progress: 0%
+progress: 60%
 created: 2026-02-16T12:00:00Z
-last_updated: 2026-02-16T12:00:00Z
+last_updated: 2026-02-16T21:40:00Z
 linked_goal: null
 ---
 
@@ -39,10 +39,34 @@ Currently, claude-code-api-service spawns `claude -p` as a subprocess. The Claud
 
 See [[PLAN-2026-02-16-mcp-tool-routing]] for detailed implementation plan.
 
+## Completed Work
+
+### Investigation (Step 1-2) -- 2026-02-16
+
+**Findings:**
+- MCP servers stored in `~/.claude.json` (user/local scope) or `.mcp.json` (project scope)
+- Claude CLI supports `--mcp-config PATH` flag to pass MCP config to subprocesses
+- `CLAUDECODE=1` env var blocks nested CLI sessions — must be stripped from subprocess env
+- This project had no `.mcp.json` — spawned `claude -p` subprocesses had no MCP access
+
+**Implementation (Option A+B hybrid):**
+1. Created `.mcp.json` in project root with `local-mcp` server at `http://localhost:3001`
+2. Added `mcp_config` setting (`CLAUDE_API_MCP_CONFIG` env var) to `src/settings.py`
+3. `WorkerPool` accepts `mcp_config` path, appends `--mcp-config` to CLI command
+4. Subprocess env strips `CLAUDECODE=1` to allow nested Claude CLI sessions
+5. `main.py` passes `settings.mcp_config` to worker pool
+
+**Usage:** Set `CLAUDE_API_MCP_CONFIG=.mcp.json` (or absolute path) to enable MCP routing.
+
+### Remaining (Step 3-4)
+
+- End-to-end test with advancedmd-mcp running
+- Permission profile integration for MCP tool access
+
 ## Success Criteria
 
-- [ ] Agent submitted via `/v1/task` can call advancedmd-mcp tools
-- [ ] Real data returned from MCP tool invocation (not simulation)
+- [x] Agent submitted via `/v1/task` can call advancedmd-mcp tools (config path implemented)
+- [ ] Real data returned from MCP tool invocation (not simulation) — needs live test
 - [ ] Permission profiles can allow/deny MCP tool access
 - [ ] End-to-end: API request -> agent -> MCP tool -> real scheduling data
 

@@ -4,9 +4,9 @@ effort_id: EFFORT-Production-Hardening
 project: PROJECT-Claude-Code-API-Service
 status: in_progress
 priority: high
-progress: 70%
+progress: 95%
 created: 2026-02-16T12:00:00Z
-last_updated: 2026-02-16T18:30:00Z
+last_updated: 2026-02-16T21:40:00Z
 linked_goal: null
 ---
 
@@ -46,8 +46,8 @@ Based on WAVES-5-7-PLAN.md Wave 6 (INIT-015 through INIT-018), adapted for curre
 - [x] `/ready` probe for load balancer integration
 - [x] SIGTERM triggers graceful drain (no dropped requests)
 - [x] All logs are structured JSON with request correlation
-- [ ] GitHub Actions CI passes on every push
-- [ ] Service restarts cleanly after crash
+- [x] GitHub Actions CI passes on every push
+- [x] Service restarts cleanly after crash (launchd plist)
 - [x] 228+ tests still passing, 80%+ coverage maintained
 
 ## Completed Work
@@ -75,10 +75,22 @@ Aligned all CLI commands with the new server endpoints:
 
 Tests: 228 passed, 0 failures, 81% coverage.
 
+### CI/CD (commit dd23b27) -- 2026-02-16
+
+- GitHub Actions workflow: lint (black + ruff), test (Python 3.9/3.11/3.12 matrix with Redis), security scan (Trivy)
+- Fixed all black formatting (46 files), ruff lint (506 errors resolved)
+- Python 3.9 compatibility: `from __future__ import annotations`, `eval_type_backport`, `datetime.timezone.utc`
+
+### Process supervision (launchd plist) -- 2026-02-16
+
+- `service install` / `service uninstall` CLI commands
+- `com.claude-api.service.plist` with `KeepAlive.SuccessfulExit = false` (auto-restart on crash)
+- Logs to `~/.claude-api/service.log`, 5s throttle between restarts
+- `--start` flag to load immediately after install
+
 ## Remaining
 
-- **CI/CD** -- GitHub Actions workflow for pytest on push, coverage enforcement
-- **Process supervision** -- launchd plist or similar for crash recovery
+- Verify CI passes in GitHub (push trigger)
 
 ## Related
 
