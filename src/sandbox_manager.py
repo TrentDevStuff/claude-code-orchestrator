@@ -3,6 +3,8 @@ Sandbox Manager
 Creates and manages isolated Docker containers for secure agentic task execution
 """
 
+import logging
+
 import docker
 import tempfile
 import shutil
@@ -11,6 +13,8 @@ import time
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from .security_validator import SecurityValidator
 
@@ -62,14 +66,14 @@ class SandboxManager:
             # Build the image from Dockerfile
             dockerfile_path = Path(__file__).parent.parent / "docker-build"
             try:
-                print(f"Building sandbox image from {dockerfile_path}...")
+                logger.info("Building sandbox image from %s", dockerfile_path)
                 self.docker_client.images.build(
                     path=str(dockerfile_path),
                     dockerfile="Dockerfile.sandbox",
                     tag=self.SANDBOX_IMAGE,
                     rm=True
                 )
-                print(f"Sandbox image {self.SANDBOX_IMAGE} built successfully")
+                logger.info("Sandbox image %s built successfully", self.SANDBOX_IMAGE)
             except Exception as e:
                 raise RuntimeError(f"Failed to build sandbox image: {e}")
 
@@ -333,7 +337,7 @@ class SandboxManager:
                     count += 1
 
         except Exception as e:
-            print(f"Warning: Cleanup failed: {e}")
+            logger.warning("Sandbox cleanup failed: %s", e)
 
         return count
 

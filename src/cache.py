@@ -13,8 +13,6 @@ from typing import Optional, Dict, Any
 import redis
 from redis.exceptions import RedisError, ConnectionError as RedisConnectionError
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 

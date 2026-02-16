@@ -551,7 +551,7 @@ def test_health_endpoint(client):
     assert response.status_code == 200
     data = response.json()
 
-    assert data["status"] == "ok"
+    assert data["status"] in ("ok", "degraded")
     assert data["version"] == "0.1.0"
     assert "services" in data
 

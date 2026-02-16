@@ -59,22 +59,24 @@ async def test_tool_call_logging(audit_logger):
 
 
 @pytest.mark.asyncio
-async def test_security_event_logging(audit_logger, capsys):
+async def test_security_event_logging(audit_logger, caplog):
     """Test logging of security events with alerts."""
+    import logging
+
     task_id = "task_002"
     api_key = "test_key_002"
 
-    await audit_logger.log_security_event(
-        task_id=task_id,
-        api_key=api_key,
-        event="blocked_command",
-        details={"command": "rm -rf /", "reason": "dangerous"}
-    )
+    with caplog.at_level(logging.CRITICAL, logger="src.audit_logger"):
+        await audit_logger.log_security_event(
+            task_id=task_id,
+            api_key=api_key,
+            event="blocked_command",
+            details={"command": "rm -rf /", "reason": "dangerous"}
+        )
 
-    # Verify alert was printed
-    captured = capsys.readouterr()
-    assert "🚨 SECURITY ALERT" in captured.out
-    assert "blocked_command" in captured.out
+    # Verify alert was logged at CRITICAL level
+    assert any("SECURITY ALERT" in r.message and "blocked_command" in r.message
+               for r in caplog.records)
 
     # Query and verify in database
     logs = await audit_logger.query_logs(filters={"task_id": task_id})

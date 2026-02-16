@@ -11,12 +11,15 @@ Provides real-time token streaming from Claude CLI with:
 
 import json
 import asyncio
+import logging
 import subprocess
 import tempfile
 from pathlib import Path
 from typing import Optional, Dict, Any
 from fastapi import WebSocket, WebSocketDisconnect
 import uuid
+
+logger = logging.getLogger(__name__)
 
 from src.worker_pool import WorkerPool
 from src.budget_manager import BudgetManager
@@ -372,7 +375,7 @@ class WebSocketStreamer:
                 if process.stderr:
                     for line in process.stderr:
                         if line.strip():
-                            print(f"Claude CLI stderr: {line.strip()}")
+                            logger.debug("Claude CLI stderr: %s", line.strip())
 
             # Start stderr reader
             stderr_task = asyncio.create_task(

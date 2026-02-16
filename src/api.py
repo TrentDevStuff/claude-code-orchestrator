@@ -8,12 +8,16 @@ Provides endpoints for:
 - Model routing recommendations
 """
 
+import logging
+
 from fastapi import APIRouter, HTTPException, Query, Depends, Security
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import asyncio
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from src.worker_pool import WorkerPool, TaskStatus
 from src.model_router import auto_select_model
@@ -489,7 +493,7 @@ async def process_ai_services_compatible(
 
     # Warn about unsupported features (but continue)
     if unsupported_features:
-        print(f"Warning: Ignoring unsupported features: {unsupported_features}")
+        logger.warning("Ignoring unsupported features: %s", unsupported_features)
 
     # Check streaming mode
     is_streaming = request.additional_params and request.additional_params.get("stream", False)

@@ -37,5 +37,9 @@ notes: |
   - Intelligent model routing (Haiku/Sonnet/Opus)
   - Token tracking and budget management
   - Parallel execution worker pool
-  - Python client library
+  - Agent/skill discovery and integration (25 agents, 17+ skills)
+  - Python client library + CLI tool (claude-api)
+  - Agentic task execution (/v1/task endpoint)
+  - Permission profiles and audit logging
   - Cost optimization
+  - 228 tests, 80%+ coverage

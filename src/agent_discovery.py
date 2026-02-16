@@ -6,10 +6,14 @@ capabilities that can be invoked through the API.
 """
 
 import json
+import logging
+
 import yaml
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -79,7 +83,7 @@ class AgentSkillDiscovery:
                     agents[info.name] = info
             except Exception as e:
                 # Skip malformed agent files
-                print(f"Warning: Could not parse agent {agent_file.name}: {e}")
+                logger.warning("Could not parse agent %s: %s", agent_file.name, e)
                 continue
 
         self._agents_cache = agents
@@ -117,7 +121,7 @@ class AgentSkillDiscovery:
                     skills[info.name] = info
             except Exception as e:
                 # Skip malformed skill files
-                print(f"Warning: Could not parse skill {skill_dir.name}: {e}")
+                logger.warning("Could not parse skill %s: %s", skill_dir.name, e)
                 continue
 
         self._skills_cache = skills

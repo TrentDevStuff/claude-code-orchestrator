@@ -104,11 +104,67 @@ class WorkerPool:
 
     def stop(self):
         """Stop the worker pool and cleanup all tasks."""
-        self.running = False
-        if self.monitor_thread:
-            self.monitor_thread.join(timeout=5.0)
+        self.drain(timeout=5)
 
-        # Kill all active processes
+    def drain(self, timeout: int = 30) -> tuple:
+        """
+        Gracefully drain the worker pool.
+
+        Stops accepting new tasks, waits for active tasks to finish up to
+        *timeout* seconds, then SIGTERMs stragglers (with a 5 s grace
+        period before SIGKILL).
+
+        Returns:
+            (completed, killed) — counts of tasks that finished vs were force-killed.
+        """
+        import signal
+
+        self.running = False
+
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=min(timeout, 5.0))
+
+        completed = 0
+        killed = 0
+
+        # Wait for active tasks to finish
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self.lock:
+                still_running = [
+                    t for t in self.tasks.values()
+                    if t.process and t.process.poll() is None
+                ]
+            if not still_running:
+                break
+            time.sleep(0.5)
+
+        # Count completed, SIGTERM remaining
+        with self.lock:
+            for task in self.tasks.values():
+                if task.process is None:
+                    continue
+                if task.process.poll() is not None:
+                    completed += 1
+                else:
+                    # Still running after timeout — send SIGTERM
+                    try:
+                        task.process.send_signal(signal.SIGTERM)
+                    except OSError:
+                        pass
+
+        # Give SIGTERM 5 s to take effect, then SIGKILL
+        term_deadline = time.time() + 5
+        while time.time() < term_deadline:
+            with self.lock:
+                stragglers = [
+                    t for t in self.tasks.values()
+                    if t.process and t.process.poll() is None
+                ]
+            if not stragglers:
+                break
+            time.sleep(0.5)
+
         with self.lock:
             for task in self.tasks.values():
                 if task.process and task.process.poll() is None:
@@ -117,7 +173,10 @@ class WorkerPool:
                         task.process.wait(timeout=2.0)
                     except Exception:
                         pass
+                    killed += 1
                 self._cleanup_task(task)
+
+        return completed, killed
 
     def submit(self, prompt: str, model: str = "sonnet", project_id: str = "default", timeout: float = 30.0) -> str:
         """

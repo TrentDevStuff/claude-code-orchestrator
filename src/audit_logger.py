@@ -1,9 +1,13 @@
 """Comprehensive audit trail logging for agentic task execution."""
 
+import logging
+
 import aiosqlite
 import json
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any
+
+logger = logging.getLogger(__name__)
 
 
 class AuditLogger:
@@ -191,7 +195,11 @@ class AuditLogger:
             event: Type of security event
             details: Event details
         """
-        print(f"🚨 SECURITY ALERT: {event} - Task: {task_id}, API Key: {api_key}, Details: {details}")
+        logger.critical(
+            "SECURITY ALERT: %s - Task: %s, API Key: %s",
+            event, task_id, api_key,
+            extra={"detail": str(details)},
+        )
 
     async def query_logs(
         self,
