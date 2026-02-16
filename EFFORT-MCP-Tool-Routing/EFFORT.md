@@ -4,9 +4,9 @@ effort_id: EFFORT-MCP-Tool-Routing
 project: PROJECT-Claude-Code-API-Service
 status: in_progress
 priority: high
-progress: 60%
+progress: 85%
 created: 2026-02-16T12:00:00Z
-last_updated: 2026-02-16T21:40:00Z
+last_updated: 2026-02-16T23:10:00Z
 linked_goal: null
 ---
 
@@ -58,17 +58,27 @@ See [[PLAN-2026-02-16-mcp-tool-routing]] for detailed implementation plan.
 
 **Usage:** Set `CLAUDE_API_MCP_CONFIG=.mcp.json` (or absolute path) to enable MCP routing.
 
-### Remaining (Step 3-4)
+### E2E Testing (Step 3) -- 2026-02-16
 
-- End-to-end test with advancedmd-mcp running
-- Permission profile integration for MCP tool access
+**All tests passed with live advancedmd-mcp on port 3001:**
+
+1. **MCP tool discovery:** `/v1/chat/completions` — subprocess listed 122+ MCP tools from `local-mcp`
+2. **Patient search:** `/v1/chat/completions` — `searchPatients("Smith")` returned real data (pat6103386 BARB SMITH, pat109085 GREG SMITH)
+3. **Scheduling:** `/v1/chat/completions` — `findAppointmentOpenings(Feb 17)` returned real slots (Dr. Joe Black, 7:00/7:15/7:30 AM)
+4. **Agentic endpoint:** `/v1/task` with enterprise permissions — full pipeline (permission validation → subprocess → MCP tool → real data), 17s round-trip
+
+**Fix required:** Project-level `.claude/settings.local.json` needed `mcp__local-mcp` in permissions allow list (user-level had it but project-level did not).
+
+### Remaining (Step 4)
+
+- Permission profile integration for MCP tool access (allow/deny specific MCP servers per API key)
 
 ## Success Criteria
 
-- [x] Agent submitted via `/v1/task` can call advancedmd-mcp tools (config path implemented)
-- [ ] Real data returned from MCP tool invocation (not simulation) — needs live test
+- [x] Agent submitted via `/v1/task` can call advancedmd-mcp tools
+- [x] Real data returned from MCP tool invocation (not simulation)
 - [ ] Permission profiles can allow/deny MCP tool access
-- [ ] End-to-end: API request -> agent -> MCP tool -> real scheduling data
+- [x] End-to-end: API request -> agent -> MCP tool -> real scheduling data
 
 ## Related
 
