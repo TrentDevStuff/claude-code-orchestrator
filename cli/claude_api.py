@@ -6,7 +6,7 @@ import typer
 from rich.console import Console
 
 # Import command groups
-from .commands import discovery, health, keys, service, tasks, test, usage, workers
+from .commands import batch, discovery, health, keys, process, providers, route, service, tasks, test, usage, workers
 from .config import config_manager
 from .utils import print_error, print_info, print_success
 
@@ -26,6 +26,10 @@ app.add_typer(usage.app, name="usage")
 app.add_typer(workers.app, name="workers")
 app.add_typer(tasks.app, name="tasks")
 app.add_typer(test.app, name="test")
+app.add_typer(process.app, name="process")
+app.add_typer(providers.app, name="providers")
+app.add_typer(batch.app, name="batch")
+app.add_typer(route.app, name="route")
 app.add_typer(discovery.agents_app, name="agents")
 app.add_typer(discovery.skills_app, name="skills")
 

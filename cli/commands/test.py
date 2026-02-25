@@ -241,6 +241,76 @@ def skills(
         raise typer.Exit(1)
 
 
+@app.command("process")
+def process_test(
+    use_cli: bool = typer.Option(False, "--use-cli", help="Test CLI path instead of SDK"),
+    key: str = typer.Option(None, help="API key to use"),
+):
+    """Test /v1/process endpoint"""
+
+    try:
+        client = APIClient(api_key=key) if key else APIClient()
+        path = "CLI" if use_cli else "SDK"
+
+        print_section(f"Testing Process Endpoint ({path} path)")
+        console.print("  POST /v1/process")
+        console.print(f"  Model: haiku via anthropic")
+        console.print(f"  Execution: {path}")
+        print()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+        ) as progress:
+            task = progress.add_task("Sending request...", total=None)
+
+            import time
+
+            start = time.time()
+
+            try:
+                response = client.process(
+                    provider="anthropic",
+                    model_name="haiku",
+                    user_message="Reply with exactly: OK",
+                    use_cli=use_cli,
+                )
+                duration = time.time() - start
+                progress.update(task, completed=True)
+
+            except APIError as e:
+                progress.stop()
+                print_error(f"Request failed: {str(e)}")
+                raise typer.Exit(1)
+
+        print_success(f"Response received ({duration:.1f}s)")
+
+        content = response.get("content", "N/A")
+        console.print(f'✓ Content: "{content[:100]}"')
+
+        metadata = response.get("metadata", {})
+        if metadata:
+            mapped_from = metadata.get("mapped_from", "")
+            if mapped_from:
+                console.print(f"✓ Mapping: {mapped_from}")
+
+            usage = metadata.get("usage", {})
+            if usage:
+                console.print(
+                    f"✓ Tokens: {usage.get('input_tokens', 0)} input, "
+                    f"{usage.get('output_tokens', 0)} output"
+                )
+
+            cost = metadata.get("cost_usd")
+            if cost is not None:
+                console.print(f"✓ Cost: {format_cost(cost)}")
+
+    except Exception as e:
+        print_error(f"Test failed: {str(e)}")
+        raise typer.Exit(1)
+
+
 @app.command()
 def all(
     key: str = typer.Option(None, help="API key to use"),
@@ -302,6 +372,21 @@ def all(
             print_error(f"POST /v1/chat/completions - {str(e)}")
             results["failed"] += 1
             results["tests"].append(("POST /v1/chat/completions", False, str(e)))
+
+        # Test 5: Process
+        try:
+            client.process(
+                provider="anthropic",
+                model_name="haiku",
+                user_message="Test",
+            )
+            print_success("POST /v1/process")
+            results["passed"] += 1
+            results["tests"].append(("POST /v1/process", True, None))
+        except Exception as e:
+            print_error(f"POST /v1/process - {str(e)}")
+            results["failed"] += 1
+            results["tests"].append(("POST /v1/process", False, str(e)))
 
         # Summary
         print()

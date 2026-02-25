@@ -124,10 +124,72 @@ class APIClient:
 
         return self.post("/v1/task", json=payload)
 
-    def get_usage(self, project_id: str | None = None) -> dict[str, Any]:
+    def get_usage(self, project_id: str | None = None, period: str | None = None) -> dict[str, Any]:
         """Get usage statistics"""
         params = {}
         if project_id:
             params["project_id"] = project_id
+        if period:
+            params["period"] = period
 
         return self.get("/v1/usage", params=params)
+
+    def process(
+        self,
+        provider: str = "anthropic",
+        model_name: str = "haiku",
+        user_message: str | None = None,
+        system_message: str | None = None,
+        messages: list[dict[str, str]] | None = None,
+        max_tokens: int | None = None,
+        use_cli: bool = False,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Send request via /v1/process endpoint"""
+        payload: dict[str, Any] = {
+            "provider": provider,
+            "model_name": model_name,
+            "use_cli": use_cli,
+        }
+        if user_message:
+            payload["user_message"] = user_message
+        if system_message:
+            payload["system_message"] = system_message
+        if messages:
+            payload["messages"] = messages
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if project_id:
+            payload["project_id"] = project_id
+
+        return self.post("/v1/process", json=payload)
+
+    def get_providers(self) -> list[dict[str, Any]]:
+        """List available providers"""
+        return self.get("/v1/providers")
+
+    def get_provider_models(self, provider: str) -> dict[str, Any]:
+        """Get models for a specific provider"""
+        return self.get(f"/v1/providers/{provider}/models")
+
+    def batch_process(
+        self,
+        prompts: list[dict[str, str]],
+        model: str | None = None,
+        timeout: float = 30.0,
+    ) -> dict[str, Any]:
+        """Process multiple prompts in parallel"""
+        payload: dict[str, Any] = {"prompts": prompts, "timeout": timeout}
+        if model:
+            payload["model"] = model
+
+        return self.post("/v1/batch", json=payload)
+
+    def route_recommend(
+        self,
+        prompt: str,
+        context_size: int = 0,
+    ) -> dict[str, Any]:
+        """Get model routing recommendation"""
+        payload = {"prompt": prompt, "context_size": context_size}
+        return self.post("/v1/route", json=payload)
