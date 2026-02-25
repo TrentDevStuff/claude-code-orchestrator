@@ -62,6 +62,8 @@ class Task:
     result: TaskResult | None = None
     start_time: float | None = None
     timeout: float = 30.0
+    working_directory: str | None = None
+    allowed_tools: list[str] | None = None
 
 
 class WorkerPool:
@@ -184,7 +186,13 @@ class WorkerPool:
         return completed, killed
 
     def submit(
-        self, prompt: str, model: str = "sonnet", project_id: str = "default", timeout: float = 30.0
+        self,
+        prompt: str,
+        model: str = "sonnet",
+        project_id: str = "default",
+        timeout: float = 30.0,
+        working_directory: str | None = None,
+        allowed_tools: list[str] | None = None,
     ) -> str:
         """
         Submit a task to the worker pool.
@@ -194,6 +202,8 @@ class WorkerPool:
             model: Model to use (haiku, sonnet, opus)
             project_id: Project identifier for tracking
             timeout: Timeout in seconds (default 30s)
+            working_directory: Optional working directory for claude -p (loads CLAUDE.md/rules)
+            allowed_tools: Optional list of tools to enable via --allowedTools
 
         Returns:
             task_id: Unique identifier for this task
@@ -201,7 +211,13 @@ class WorkerPool:
         task_id = str(uuid.uuid4())
 
         task = Task(
-            task_id=task_id, prompt=prompt, model=model, project_id=project_id, timeout=timeout
+            task_id=task_id,
+            prompt=prompt,
+            model=model,
+            project_id=project_id,
+            timeout=timeout,
+            working_directory=working_directory,
+            allowed_tools=allowed_tools,
         )
 
         with self.lock:
@@ -241,17 +257,42 @@ class WorkerPool:
 
             time.sleep(0.1)
 
-        # Timeout - kill the task if it's running
+        # Timeout - kill the task and capture any partial output
         with self.lock:
             task = self.tasks[task_id]
+            stderr_capture = ""
+            stdout_capture = ""
             if task.process and task.process.poll() is None:
-                task.process.kill()
+                # Try to capture partial output before killing
+                try:
+                    stdout_capture, stderr_capture = task.process.communicate(timeout=2.0)
+                except Exception:
+                    pass
+                try:
+                    task.process.kill()
+                except Exception:
+                    pass
                 task.status = TaskStatus.TIMEOUT
+
+            # Also check debug log if it exists
+            debug_log = ""
+            if task.temp_dir:
+                debug_path = task.temp_dir / "stderr.log"
+                if debug_path.exists():
+                    debug_log = debug_path.read_text()[-2000:]  # last 2000 chars
+
+            error_msg = f"Task timed out after {timeout} seconds"
+            if stderr_capture:
+                error_msg += f"\nStderr: {stderr_capture[:2000]}"
+            if stdout_capture:
+                error_msg += f"\nPartial stdout: {stdout_capture[:2000]}"
+            if debug_log:
+                error_msg += f"\nDebug log: {debug_log}"
 
             task.result = TaskResult(
                 task_id=task_id,
                 status=TaskStatus.TIMEOUT,
-                error=f"Task timed out after {timeout} seconds",
+                error=error_msg,
             )
 
         return task.result
@@ -340,6 +381,13 @@ class WorkerPool:
                 f"--output-format json"
             )
 
+            # Append allowed tools if specified
+            if task.allowed_tools:
+                tools_str = ",".join(task.allowed_tools)
+                cmd += f" --allowedTools '{tools_str}'"
+                # Non-interactive subprocess can't prompt for permissions
+                cmd += " --permission-mode bypassPermissions"
+
             # Append MCP config if configured
             if self.mcp_config:
                 mcp_path = Path(self.mcp_config).resolve()
@@ -350,16 +398,26 @@ class WorkerPool:
             # Remove CLAUDECODE=1 which blocks nested Claude CLI sessions
             env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
 
-            # Start process
+            # Determine working directory for subprocess
+            cwd = None
+            if task.working_directory:
+                wd = Path(task.working_directory)
+                if wd.is_dir():
+                    cwd = str(wd)
+
+            # Start process — redirect stderr to file for real-time debug tracing
+            stderr_log = task.temp_dir / "stderr.log"
             try:
+                stderr_fh = open(stderr_log, "w")
                 task.process = subprocess.Popen(
                     cmd,
                     stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
+                    stderr=stderr_fh,
                     shell=True,
                     text=True,
                     executable="/bin/bash",  # Use bash for $(cat ...) substitution
                     env=env,
+                    cwd=cwd,
                 )
                 task.status = TaskStatus.RUNNING
                 task.start_time = time.time()
@@ -418,12 +476,21 @@ class WorkerPool:
 
         returncode = task.process.returncode
 
-        # Try to get output - may already be consumed in some edge cases
+        # Try to get stdout (stderr goes to file)
         try:
-            stdout, stderr = task.process.communicate(timeout=2.0)
-        except ValueError:
-            # Process output already consumed (e.g., killed task)
-            stdout, stderr = "", ""
+            stdout = task.process.stdout.read() if task.process.stdout else ""
+        except (ValueError, OSError):
+            stdout = ""
+
+        # Read stderr from log file
+        stderr = ""
+        if task.temp_dir:
+            stderr_path = task.temp_dir / "stderr.log"
+            if stderr_path.exists():
+                try:
+                    stderr = stderr_path.read_text()
+                except OSError:
+                    pass
 
         if returncode == 0:
             try:
@@ -458,7 +525,7 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id,
                     status=TaskStatus.FAILED,
-                    error=f"Failed to parse JSON output: {str(e)}\nOutput: {stdout}",
+                    error=f"Failed to parse JSON output: {str(e)}\nOutput: {stdout}\nStderr: {stderr[-2000:]}",
                 )
 
         else:

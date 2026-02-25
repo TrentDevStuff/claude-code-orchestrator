@@ -48,6 +48,12 @@ class ChatCompletionRequest(BaseModel):
     )
     timeout: float = Field(30.0, description="Request timeout in seconds", ge=1.0, le=300.0)
     max_tokens: int | None = Field(None, description="Estimated context size for auto-routing")
+    working_directory: str | None = Field(
+        None, description="Working directory for claude -p (loads CLAUDE.md and project rules)"
+    )
+    allowed_tools: list[str] | None = Field(
+        None, description="Tools to enable via --allowedTools (e.g. Read, Write, Bash, mcp__local-mcp)"
+    )
 
 
 class Usage(BaseModel):
@@ -205,7 +211,12 @@ async def chat_completion(
 
     # Submit task to worker pool
     task_id = worker_pool.submit(
-        prompt=prompt, model=request.model, project_id=project_id, timeout=request.timeout
+        prompt=prompt,
+        model=request.model,
+        project_id=project_id,
+        timeout=request.timeout,
+        working_directory=request.working_directory,
+        allowed_tools=request.allowed_tools,
     )
 
     # Wait for result (blocking in async context)
