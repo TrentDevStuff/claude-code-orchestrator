@@ -551,8 +551,11 @@ async def process_ai_services_compatible(
     if not await budget_manager.check_budget(request.project_id, estimated_tokens):
         raise HTTPException(403, f"Budget exceeded for project {request.project_id}")
 
-    # SDK direct path: bypass CLI cold start for simple completions
-    if request.use_sdk and sdk_client is not None:
+    # Determine execution path: SDK (default, fast) vs CLI (opt-in, full features)
+    use_cli = request.use_cli or sdk_client is None
+
+    if not use_cli:
+        # SDK path (default) — fast, simple completions via Anthropic API
         t_sdk_start = time.monotonic()
         sdk_messages = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages]
         loop = asyncio.get_event_loop()
@@ -584,7 +587,7 @@ async def process_ai_services_compatible(
             claude_model=claude_model,
         )
 
-    # Submit to worker pool - Claude CLI needs 10-30s minimum
+    # CLI path (opt-in via use_cli: true) — full Claude Code features, 3-8s cold start
     timeout = max(30, (request.max_tokens or 1000) / 10)
     t_submit = time.monotonic()
     task_id = worker_pool.submit(

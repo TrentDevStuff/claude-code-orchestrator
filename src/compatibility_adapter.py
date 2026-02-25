@@ -77,10 +77,10 @@ class ProcessRequest(BaseModel):
     media_content: list[dict] | None = Field(None, description="Multimodal content (not supported)")
     memory: dict | None = Field(None, description="Memory management (not supported)")
 
-    # SDK direct path (bypasses CLI cold start for simple completions)
-    use_sdk: bool = Field(
+    # Execution path control (SDK is default for speed; CLI needed for tools/agents/MCP)
+    use_cli: bool = Field(
         False,
-        description="Use Anthropic SDK directly instead of CLI. Faster but no tools/agents/skills.",
+        description="Use Claude CLI instead of SDK. Required for tools, agents, skills, MCP, working directory context.",
     )
 
     # Metadata
