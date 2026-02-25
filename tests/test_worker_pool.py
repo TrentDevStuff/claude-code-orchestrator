@@ -49,7 +49,8 @@ def test_submit_task(worker_pool):
     assert task.prompt == "Test prompt"
     assert task.model == "haiku"
     assert task.project_id == "test-project"
-    assert task.status == TaskStatus.PENDING
+    # Task starts immediately when workers are available (direct start optimization)
+    assert task.status in (TaskStatus.PENDING, TaskStatus.RUNNING)
 
 
 def test_submit_multiple_tasks(worker_pool):
@@ -67,7 +68,7 @@ def test_submit_multiple_tasks(worker_pool):
     assert all(tid in worker_pool.tasks for tid in task_ids)
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_task_execution_success(mock_popen, worker_pool):
     """Test successful task execution."""
     # Mock the subprocess
@@ -75,12 +76,11 @@ def test_task_execution_success(mock_popen, worker_pool):
     mock_process.poll.return_value = 0  # Process completed
     mock_process.returncode = 0
     mock_process.pid = 12345
-    mock_process.communicate.return_value = (
-        json.dumps(
-            {"result": "Test response", "usage": {"input_tokens": 100, "output_tokens": 50}}
-        ),
-        "",
+    json_output = json.dumps(
+        {"result": "Test response", "usage": {"input_tokens": 100, "output_tokens": 50}}
     )
+    mock_process.stdout.read.return_value = json_output
+    mock_process.communicate.return_value = (json_output, "")
     mock_popen.return_value = mock_process
 
     worker_pool.start()
@@ -104,7 +104,7 @@ def test_get_result_nonexistent_task(worker_pool):
         worker_pool.get_result("nonexistent-task-id")
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_timeout_handling(mock_popen, worker_pool):
     """Test that tasks timeout correctly."""
     # Mock a process that never completes
@@ -126,7 +126,7 @@ def test_timeout_handling(mock_popen, worker_pool):
     mock_process.kill.assert_called()
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_kill_task(mock_popen, worker_pool):
     """Test killing a running task."""
     mock_process = MagicMock()
@@ -156,7 +156,7 @@ def test_kill_nonexistent_task(worker_pool):
     assert killed is False
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_concurrent_workers(mock_popen, worker_pool):
     """Test that multiple workers can run concurrently."""
     # Create multiple mock processes
@@ -186,7 +186,7 @@ def test_concurrent_workers(mock_popen, worker_pool):
     assert worker_pool.active_workers == 3
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_queue_system(mock_popen, worker_pool):
     """Test that tasks queue when workers are busy."""
 
@@ -222,7 +222,7 @@ def test_queue_system(mock_popen, worker_pool):
     assert pending_count == 2
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_get_active_pids(mock_popen, worker_pool):
     """Test PID tracking."""
     mock_processes = []
@@ -257,17 +257,16 @@ def test_get_active_pids(mock_popen, worker_pool):
         assert pid == expected_pids[task_id]
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_worker_cleanup(mock_popen, worker_pool):
     """Test that workers are cleaned up after completion."""
     mock_process = MagicMock()
     mock_process.poll.return_value = 0  # Completed
     mock_process.returncode = 0
     mock_process.pid = 12345
-    mock_process.communicate.return_value = (
-        json.dumps({"result": "Response", "usage": {"input_tokens": 10, "output_tokens": 5}}),
-        "",
-    )
+    json_output = json.dumps({"result": "Response", "usage": {"input_tokens": 10, "output_tokens": 5}})
+    mock_process.stdout.read.return_value = json_output
+    mock_process.communicate.return_value = (json_output, "")
     mock_popen.return_value = mock_process
 
     worker_pool.start()
@@ -303,13 +302,14 @@ def test_cost_calculation():
     pool.stop()
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_process_failure_handling(mock_popen, worker_pool):
     """Test handling of process failures."""
     mock_process = MagicMock()
     mock_process.poll.return_value = 1  # Failed
     mock_process.returncode = 1
     mock_process.pid = 12345
+    mock_process.stdout.read.return_value = ""
     mock_process.communicate.return_value = ("", "Error message")
     mock_popen.return_value = mock_process
 
@@ -325,13 +325,14 @@ def test_process_failure_handling(mock_popen, worker_pool):
     assert "exited with code 1" in result.error
 
 
-@patch("subprocess.Popen")
+@patch("src.worker_pool.subprocess.Popen")
 def test_invalid_json_output(mock_popen, worker_pool):
     """Test handling of invalid JSON output from Claude."""
     mock_process = MagicMock()
     mock_process.poll.return_value = 0
     mock_process.returncode = 0
     mock_process.pid = 12345
+    mock_process.stdout.read.return_value = "Invalid JSON {{{"
     mock_process.communicate.return_value = ("Invalid JSON {{{", "")
     mock_popen.return_value = mock_process
 

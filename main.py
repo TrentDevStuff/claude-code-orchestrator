@@ -27,6 +27,7 @@ from src.middleware import RequestIDMiddleware
 from src.permission_manager import PermissionManager
 from src.settings import settings
 from src.websocket import _streamer, initialize_websocket, websocket_endpoint
+from src.direct_completion import DirectCompletionClient
 from src.worker_pool import WorkerPool
 
 # Configure logging early (before anything else logs)
@@ -40,6 +41,7 @@ auth_manager: AuthManager | None = None
 permission_manager: PermissionManager | None = None
 audit_logger: AuditLogger | None = None
 cache: RedisCache | None = None
+sdk_client: DirectCompletionClient | None = None
 
 # Lifecycle flags
 _start_time: float | None = None
@@ -53,7 +55,7 @@ async def lifespan(app: FastAPI):
     Initializes and cleans up all services with graceful shutdown.
     """
     global worker_pool, budget_manager, auth_manager, permission_manager
-    global audit_logger, cache, _start_time, _shutting_down
+    global audit_logger, cache, sdk_client, _start_time, _shutting_down
 
     _start_time = time.time()
     _shutting_down = False
@@ -70,8 +72,16 @@ async def lifespan(app: FastAPI):
     # Initialize Redis cache (non-fatal if unavailable)
     cache = RedisCache()
 
+    # Initialize direct SDK client (non-fatal if API key unavailable)
+    try:
+        sdk_client = DirectCompletionClient()
+        logger.info("Direct SDK completion client ready")
+    except Exception as e:
+        logger.warning("SDK client unavailable (CLI path still works): %s", e)
+        sdk_client = None
+
     # Initialize API services
-    initialize_services(worker_pool, budget_manager, permission_manager)
+    initialize_services(worker_pool, budget_manager, permission_manager, sdk_client)
     initialize_auth(auth_manager)
 
     # Initialize WebSocket service

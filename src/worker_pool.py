@@ -64,6 +64,11 @@ class Task:
     timeout: float = 30.0
     working_directory: str | None = None
     allowed_tools: list[str] | None = None
+    done_event: threading.Event = None
+
+    def __post_init__(self):
+        if self.done_event is None:
+            self.done_event = threading.Event()
 
 
 class WorkerPool:
@@ -222,7 +227,11 @@ class WorkerPool:
 
         with self.lock:
             self.tasks[task_id] = task
-            self.task_queue.put(task_id)
+            # Start immediately if capacity exists, otherwise queue
+            if self.active_workers < self.max_workers:
+                self._start_task_locked(task_id)
+            else:
+                self.task_queue.put(task_id)
 
         # Ensure monitor is running
         if not self.running:
@@ -248,14 +257,11 @@ class WorkerPool:
         if task_id not in self.tasks:
             raise ValueError(f"Task {task_id} not found")
 
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            task = self.tasks[task_id]
+        task = self.tasks[task_id]
 
-            if task.result:
-                return task.result
-
-            time.sleep(0.1)
+        # Wait for completion using event (no polling)
+        if task.done_event.wait(timeout=timeout):
+            return task.result
 
         # Timeout - kill the task and capture any partial output
         with self.lock:
@@ -294,6 +300,7 @@ class WorkerPool:
                 status=TaskStatus.TIMEOUT,
                 error=error_msg,
             )
+            task.done_event.set()
 
         return task.result
 
@@ -319,6 +326,7 @@ class WorkerPool:
                 task.result = TaskResult(
                     task_id=task_id, status=TaskStatus.KILLED, error="Task was killed by user"
                 )
+                task.done_event.set()
                 self.active_workers -= 1
                 self._cleanup_task(task)
                 return True
@@ -356,81 +364,91 @@ class WorkerPool:
             # Check for completed tasks
             self._check_completed_tasks()
 
-            time.sleep(0.1)
+            time.sleep(0.01)
 
     def _start_task(self, task_id: str):
-        """Start executing a task."""
+        """Start executing a task (acquires lock)."""
         with self.lock:
-            task = self.tasks.get(task_id)
-            if not task:
-                return
+            self._start_task_locked(task_id)
 
-            # Create temp directory for this task
-            task.temp_dir = Path(tempfile.mkdtemp(prefix=f"claude_task_{task_id[:8]}_"))
-            prompt_file = task.temp_dir / "prompt.txt"
+    def _start_task_locked(self, task_id: str):
+        """Start executing a task (caller must hold self.lock)."""
+        task = self.tasks.get(task_id)
+        if not task:
+            return
 
-            # Write prompt to file
-            prompt_file.write_text(task.prompt)
+        # Re-check capacity under lock to prevent races
+        if self.active_workers >= self.max_workers:
+            self.task_queue.put(task_id)
+            return
 
-            # Build command - use shell string for proper prompt handling
-            # This matches the orchestrator's daemon pattern
-            claude_path = shutil.which("claude") or "claude"
-            cmd = (
-                f'{claude_path} -p "$(cat {prompt_file})" '
-                f"--model {task.model} "
-                f"--output-format json"
+        # Create temp directory for this task
+        task.temp_dir = Path(tempfile.mkdtemp(prefix=f"claude_task_{task_id[:8]}_"))
+        prompt_file = task.temp_dir / "prompt.txt"
+
+        # Write prompt to file
+        prompt_file.write_text(task.prompt)
+
+        # Build command - use shell string for proper prompt handling
+        # This matches the orchestrator's daemon pattern
+        claude_path = shutil.which("claude") or "claude"
+        cmd = (
+            f'{claude_path} -p "$(cat {prompt_file})" '
+            f"--model {task.model} "
+            f"--output-format json"
+        )
+
+        # Append allowed tools if specified
+        if task.allowed_tools:
+            tools_str = ",".join(task.allowed_tools)
+            cmd += f" --allowedTools '{tools_str}'"
+            # Non-interactive subprocess can't prompt for permissions
+            cmd += " --permission-mode bypassPermissions"
+
+        # Append MCP config if configured
+        if self.mcp_config:
+            mcp_path = Path(self.mcp_config).resolve()
+            if mcp_path.exists():
+                cmd += f" --mcp-config {mcp_path}"
+
+        # Build clean environment for subprocess
+        # Remove CLAUDECODE=1 which blocks nested Claude CLI sessions
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
+
+        # Determine working directory for subprocess
+        cwd = None
+        if task.working_directory:
+            wd = Path(task.working_directory)
+            if wd.is_dir():
+                cwd = str(wd)
+
+        # Start process — redirect stderr to file for real-time debug tracing
+        stderr_log = task.temp_dir / "stderr.log"
+        try:
+            stderr_fh = open(stderr_log, "w")
+            task.process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=stderr_fh,
+                shell=True,
+                text=True,
+                executable="/bin/bash",  # Use bash for $(cat ...) substitution
+                env=env,
+                cwd=cwd,
             )
+            task.status = TaskStatus.RUNNING
+            task.start_time = time.time()
+            self.active_workers += 1
 
-            # Append allowed tools if specified
-            if task.allowed_tools:
-                tools_str = ",".join(task.allowed_tools)
-                cmd += f" --allowedTools '{tools_str}'"
-                # Non-interactive subprocess can't prompt for permissions
-                cmd += " --permission-mode bypassPermissions"
-
-            # Append MCP config if configured
-            if self.mcp_config:
-                mcp_path = Path(self.mcp_config).resolve()
-                if mcp_path.exists():
-                    cmd += f" --mcp-config {mcp_path}"
-
-            # Build clean environment for subprocess
-            # Remove CLAUDECODE=1 which blocks nested Claude CLI sessions
-            env = {k: v for k, v in os.environ.items() if k != "CLAUDECODE"}
-
-            # Determine working directory for subprocess
-            cwd = None
-            if task.working_directory:
-                wd = Path(task.working_directory)
-                if wd.is_dir():
-                    cwd = str(wd)
-
-            # Start process — redirect stderr to file for real-time debug tracing
-            stderr_log = task.temp_dir / "stderr.log"
-            try:
-                stderr_fh = open(stderr_log, "w")
-                task.process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=stderr_fh,
-                    shell=True,
-                    text=True,
-                    executable="/bin/bash",  # Use bash for $(cat ...) substitution
-                    env=env,
-                    cwd=cwd,
-                )
-                task.status = TaskStatus.RUNNING
-                task.start_time = time.time()
-                self.active_workers += 1
-
-            except Exception as e:
-                task.status = TaskStatus.FAILED
-                task.result = TaskResult(
-                    task_id=task_id,
-                    status=TaskStatus.FAILED,
-                    error=f"Failed to start process: {str(e)}",
-                )
-                self._cleanup_task(task)
+        except Exception as e:
+            task.status = TaskStatus.FAILED
+            task.result = TaskResult(
+                task_id=task_id,
+                status=TaskStatus.FAILED,
+                error=f"Failed to start process: {str(e)}",
+            )
+            task.done_event.set()
+            self._cleanup_task(task)
 
     def _check_completed_tasks(self):
         """Check for completed tasks and process their results."""
@@ -456,6 +474,7 @@ class WorkerPool:
                         status=TaskStatus.TIMEOUT,
                         error=f"Task timed out after {task.timeout} seconds",
                     )
+                    task.done_event.set()
                     self.active_workers -= 1
                     completed_tasks.append(task_id)
 
@@ -519,6 +538,7 @@ class WorkerPool:
                     },
                     cost=cost,
                 )
+                task.done_event.set()
 
             except json.JSONDecodeError as e:
                 task.status = TaskStatus.FAILED
@@ -527,6 +547,7 @@ class WorkerPool:
                     status=TaskStatus.FAILED,
                     error=f"Failed to parse JSON output: {str(e)}\nOutput: {stdout}\nStderr: {stderr[-2000:]}",
                 )
+                task.done_event.set()
 
         else:
             task.status = TaskStatus.FAILED
@@ -535,6 +556,7 @@ class WorkerPool:
                 status=TaskStatus.FAILED,
                 error=f"Process exited with code {returncode}\nStderr: {stderr}",
             )
+            task.done_event.set()
 
         self.active_workers -= 1
         self._cleanup_task(task)

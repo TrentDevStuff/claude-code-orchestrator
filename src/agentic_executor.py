@@ -7,6 +7,7 @@ Includes comprehensive audit logging integration.
 
 from __future__ import annotations
 
+import asyncio
 import time
 import uuid
 from datetime import datetime
@@ -185,9 +186,10 @@ class AgenticExecutor:
                 timeout=request.timeout,
             )
 
-            # Step 7: Get result (blocking with timeout)
-            task_result: TaskResult = self.worker_pool.get_result(
-                task_id=worker_task_id, timeout=request.timeout + 10  # Add buffer
+            # Step 7: Get result (run in executor to avoid blocking event loop)
+            loop = asyncio.get_event_loop()
+            task_result: TaskResult = await loop.run_in_executor(
+                None, self.worker_pool.get_result, worker_task_id, request.timeout + 10
             )
 
         except TimeoutError:

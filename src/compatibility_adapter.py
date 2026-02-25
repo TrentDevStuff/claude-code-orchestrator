@@ -77,6 +77,12 @@ class ProcessRequest(BaseModel):
     media_content: list[dict] | None = Field(None, description="Multimodal content (not supported)")
     memory: dict | None = Field(None, description="Memory management (not supported)")
 
+    # SDK direct path (bypasses CLI cold start for simple completions)
+    use_sdk: bool = Field(
+        False,
+        description="Use Anthropic SDK directly instead of CLI. Faster but no tools/agents/skills.",
+    )
+
     # Metadata
     project_id: str | None = Field("default", description="Project identifier for budget tracking")
 

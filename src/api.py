@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Security
@@ -23,6 +24,7 @@ logger = logging.getLogger(__name__)
 from src.agentic_executor import AgenticExecutor, AgenticTaskRequest, AgenticTaskResponse
 from src.auth import verify_api_key
 from src.budget_manager import BudgetManager
+from src.direct_completion import DirectCompletionClient
 from src.model_router import auto_select_model
 from src.permission_manager import PermissionManager
 from src.worker_pool import TaskStatus, WorkerPool
@@ -157,16 +159,21 @@ router = APIRouter(prefix="/v1", tags=["API"])
 worker_pool: WorkerPool | None = None
 budget_manager: BudgetManager | None = None
 permission_manager: PermissionManager | None = None
+sdk_client: DirectCompletionClient | None = None
 
 
 def initialize_services(
-    pool: WorkerPool, budget: BudgetManager, permissions: PermissionManager = None
+    pool: WorkerPool,
+    budget: BudgetManager,
+    permissions: PermissionManager = None,
+    direct_sdk: DirectCompletionClient = None,
 ):
     """Initialize global service instances."""
-    global worker_pool, budget_manager, permission_manager
+    global worker_pool, budget_manager, permission_manager, sdk_client
     worker_pool = pool
     budget_manager = budget
     permission_manager = permissions
+    sdk_client = direct_sdk
 
 
 # ============================================================================
@@ -210,6 +217,7 @@ async def chat_completion(
         raise HTTPException(status_code=429, detail=f"Budget exceeded for project {project_id}")
 
     # Submit task to worker pool
+    t_submit = time.monotonic()
     task_id = worker_pool.submit(
         prompt=prompt,
         model=request.model,
@@ -219,9 +227,14 @@ async def chat_completion(
         allowed_tools=request.allowed_tools,
     )
 
-    # Wait for result (blocking in async context)
+    # Wait for result (run in executor to avoid blocking event loop)
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(None, worker_pool.get_result, task_id, request.timeout)
+    t_done = time.monotonic()
+    logger.info(
+        "chat_completion_latency",
+        extra={"task_id": task_id, "overhead_ms": round((t_done - t_submit) * 1000, 1)},
+    )
 
     # Handle errors
     if result.status != TaskStatus.COMPLETED:
@@ -538,12 +551,54 @@ async def process_ai_services_compatible(
     if not await budget_manager.check_budget(request.project_id, estimated_tokens):
         raise HTTPException(403, f"Budget exceeded for project {request.project_id}")
 
+    # SDK direct path: bypass CLI cold start for simple completions
+    if request.use_sdk and sdk_client is not None:
+        t_sdk_start = time.monotonic()
+        sdk_messages = [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages]
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None, sdk_client.complete, sdk_messages, claude_model, request.max_tokens or 4096
+        )
+        t_sdk_done = time.monotonic()
+        logger.info(
+            "sdk_direct_path",
+            extra={"overhead_ms": round((t_sdk_done - t_sdk_start) * 1000, 1)},
+        )
+
+        if result.status != TaskStatus.COMPLETED:
+            raise HTTPException(500, f"SDK completion failed: {result.error}")
+
+        if result.usage:
+            await budget_manager.track_usage(
+                request.project_id, claude_model, result.usage["total_tokens"], result.cost or 0
+            )
+
+        return convert_response(
+            claude_response={
+                "content": result.completion or "",
+                "usage": result.usage,
+                "cost": result.cost,
+            },
+            original_provider=request.provider,
+            original_model=request.model_name,
+            claude_model=claude_model,
+        )
+
     # Submit to worker pool - Claude CLI needs 10-30s minimum
     timeout = max(30, (request.max_tokens or 1000) / 10)
+    t_submit = time.monotonic()
     task_id = worker_pool.submit(
         prompt=prompt, model=claude_model, project_id=request.project_id, timeout=timeout
     )
-    result = worker_pool.get_result(task_id, timeout=timeout)
+
+    # Run blocking get_result in thread pool to avoid blocking the event loop
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(None, worker_pool.get_result, task_id, timeout)
+    t_done = time.monotonic()
+    logger.info(
+        "process_latency",
+        extra={"task_id": task_id, "overhead_ms": round((t_done - t_submit) * 1000, 1)},
+    )
 
     # Check for non-success status
     if result.status != TaskStatus.COMPLETED:
